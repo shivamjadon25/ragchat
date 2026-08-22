@@ -210,100 +210,110 @@ if prompt := st.chat_input("Ask a question..."):
     context = ""
     sources = []
     
-    with st.spinner("Searching knowledge base..."):
-        try:
-            # Generate Embedding for prompt
-            genai.configure(api_key=gemini_key)
-            
-            # Dynamically resolve embedding model name from the user's active API
-            embedding_model = "models/text-embedding-004"
+    # Check if query is simple smalltalk, greeting, or acknowledgement
+    clean_query = "".join(c for c in prompt.lower() if c.isalnum() or c.isspace()).strip()
+    smalltalk_phrases = {
+        "hi", "hello", "hey", "howdy", "greetings", "good morning", "good afternoon", "good evening", 
+        "how are you", "hows it going", "how are you doing", "yo", "sup", "whats up",
+        "thanks", "thank you", "thank you so much", "perfect", "ok", "okay", "awesome", "cool", "great"
+    }
+    is_smalltalk = clean_query in smalltalk_phrases
+    
+    if not is_smalltalk:
+        with st.spinner("Searching knowledge base..."):
             try:
-                models = genai.list_models()
-                valid_models = [m.name for m in models if 'embedContent' in m.supported_generation_methods]
-                for m in ["models/text-embedding-004", "models/embedding-001"]:
-                    if m in valid_models:
-                        embedding_model = m
-                        break
-                else:
-                    if valid_models:
-                        embedding_model = valid_models[0]
-            except Exception as e:
-                pass
-
-            # Query Reformulation: Rephrase follow-up query to standalone query
-            standalone_query = prompt
-            if len(st.session_state.chat_history) > 1:
+                # Generate Embedding for prompt
+                genai.configure(api_key=gemini_key)
+                
+                # Dynamically resolve embedding model name from the user's active API
+                embedding_model = "models/text-embedding-004"
                 try:
-                    # Load model settings to use current model for rephrasing
-                    bot_settings = load_bot_settings(bot_id)
-                    generation_model = bot_settings.get("model_name", "models/gemini-2.5-flash")
-                    
-                    # Dynamic model fallback if default
-                    if generation_model in ["models/gemini-2.5-flash", "models/gemini-1.5-flash", "gemini-2.5-flash", "gemini-1.5-flash"]:
-                        try:
-                            models = genai.list_models()
-                            valid_models = [m.name for m in models if 'generateContent' in m.supported_generation_methods]
-                            for m in ["models/gemini-2.5-flash", "models/gemini-3.5-flash", "models/gemini-1.5-flash"]:
-                                if m in valid_models:
-                                    generation_model = m
-                                    break
-                            else:
-                                flash_models = [m for m in valid_models if "flash" in m]
-                                if flash_models:
-                                    generation_model = flash_models[0]
-                                elif valid_models:
-                                    generation_model = valid_models[0]
-                        except:
-                            pass
-
-                    reformulate_model = genai.GenerativeModel(model_name=generation_model)
-                    history_summary = ""
-                    # Grab up to the last 5 turns of conversation context
-                    recent_turns = st.session_state.chat_history[-5:-1]
-                    for msg in recent_turns:
-                        role_name = "User" if msg["role"] == "user" else "Assistant"
-                        history_summary += f"{role_name}: {msg['content']}\n"
-                    
-                    reformulate_prompt = (
-                        "Given the following conversation history and a follow-up question, "
-                        "rephrase the follow-up question to be a standalone search query (do not answer the question, just rephrase it). "
-                        "If the question is already standalone, return it exactly as is.\n\n"
-                        f"Conversation History:\n{history_summary}\n"
-                        f"Follow-up Question: {prompt}\n"
-                        "Standalone Query:"
-                    )
-                    
-                    rewrite_res = reformulate_model.generate_content(reformulate_prompt)
-                    standalone_query = rewrite_res.text.strip()
+                    models = genai.list_models()
+                    valid_models = [m.name for m in models if 'embedContent' in m.supported_generation_methods]
+                    for m in ["models/text-embedding-004", "models/embedding-001"]:
+                        if m in valid_models:
+                            embedding_model = m
+                            break
+                    else:
+                        if valid_models:
+                            embedding_model = valid_models[0]
                 except Exception as e:
-                    standalone_query = prompt
+                    pass
 
-            emb_res = genai.embed_content(
-                model=embedding_model,
-                content=standalone_query,
-                task_type="retrieval_query"
-            )
-            query_embedding = emb_res['embedding'][:768]
-            
-            # Execute pgvector RPC search in Supabase
-            rpc_res = supabase.rpc("match_documents", {
-                "query_embedding": query_embedding,
-                "match_threshold": 0.25,
-                "match_count": 4,
-                "filter_bot_id": bot_id
-            }).execute()
-            
-            matches = rpc_res.data or []
-            
-            context_parts = []
-            for match in matches:
-                context_parts.append(f"Source URL: {match['url']}\nContent:\n{match['content']}\n---\n")
-                if (match['url'], match['similarity']) not in sources:
-                    sources.append((match['url'], match['similarity']))
-            
-            context = "\n".join(context_parts)
-        except Exception as e:
-            st.error(f"Search retrieval error: {e}")
+                # Query Reformulation: Rephrase follow-up query to standalone query
+                standalone_query = prompt
+                if len(st.session_state.chat_history) > 1:
+                    try:
+                        # Load model settings to use current model for rephrasing
+                        bot_settings = load_bot_settings(bot_id)
+                        generation_model = bot_settings.get("model_name", "models/gemini-2.5-flash")
+                        
+                        # Dynamic model fallback if default
+                        if generation_model in ["models/gemini-2.5-flash", "models/gemini-1.5-flash", "gemini-2.5-flash", "gemini-1.5-flash"]:
+                            try:
+                                models = genai.list_models()
+                                valid_models = [m.name for m in models if 'generateContent' in m.supported_generation_methods]
+                                for m in ["models/gemini-2.5-flash", "models/gemini-3.5-flash", "models/gemini-1.5-flash"]:
+                                    if m in valid_models:
+                                        generation_model = m
+                                        break
+                                else:
+                                    flash_models = [m for m in valid_models if "flash" in m]
+                                    if flash_models:
+                                        generation_model = flash_models[0]
+                                    elif valid_models:
+                                        generation_model = valid_models[0]
+                            except:
+                                pass
+
+                        reformulate_model = genai.GenerativeModel(model_name=generation_model)
+                        history_summary = ""
+                        # Grab up to the last 5 turns of conversation context
+                        recent_turns = st.session_state.chat_history[-5:-1]
+                        for msg in recent_turns:
+                            role_name = "User" if msg["role"] == "user" else "Assistant"
+                            history_summary += f"{role_name}: {msg['content']}\n"
+                        
+                        reformulate_prompt = (
+                            "Given the following conversation history and a follow-up question, "
+                            "rephrase the follow-up question to be a standalone search query (do not answer the question, just rephrase it). "
+                            "If the question is already standalone, return it exactly as is.\n\n"
+                            f"Conversation History:\n{history_summary}\n"
+                            f"Follow-up Question: {prompt}\n"
+                            "Standalone Query:"
+                        )
+                        
+                        rewrite_res = reformulate_model.generate_content(reformulate_prompt)
+                        standalone_query = rewrite_res.text.strip()
+                    except Exception as e:
+                        standalone_query = prompt
+
+                emb_res = genai.embed_content(
+                    model=embedding_model,
+                    content=standalone_query,
+                    task_type="retrieval_query"
+                )
+                query_embedding = emb_res['embedding'][:768]
+                
+                # Execute pgvector RPC search in Supabase
+                rpc_res = supabase.rpc("match_documents", {
+                    "query_embedding": query_embedding,
+                    "match_threshold": 0.25,
+                    "match_count": 4,
+                    "filter_bot_id": bot_id
+                }).execute()
+                
+                matches = rpc_res.data or []
+                
+                context_parts = []
+                for match in matches:
+                    context_parts.append(f"Source URL: {match['url']}\nContent:\n{match['content']}\n---\n")
+                    if (match['url'], match['similarity']) not in sources:
+                        sources.append((match['url'], match['similarity']))
+                
+                context = "\n".join(context_parts)
+            except Exception as e:
+                st.error(f"Search retrieval error: {e}")
             
     # 2. Generation using Gemini
     with st.chat_message("assistant"):
@@ -358,7 +368,15 @@ if prompt := st.chat_input("Ask a question..."):
             role_name = "User" if msg["role"] == "user" else "Assistant"
             history_str += f"{role_name}: {msg['content']}\n"
             
-        if context:
+        if is_smalltalk:
+            full_prompt = (
+                f"Respond politely and briefly to the user's greeting, smalltalk, or acknowledgement. "
+                "Do not make up facts or mention documentation.\n\n"
+                f"Previous Conversation:\n{history_str}\n"
+                f"User: {prompt}\n"
+                f"Answer: "
+            )
+        elif context:
             full_prompt = (
                 f"Context about {bot_info['name']}:\n{context}\n\n"
                 f"Previous Conversation:\n{history_str}\n"
