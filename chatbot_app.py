@@ -482,18 +482,21 @@ if prompt := st.chat_input("Ask a question..."):
                 try:
                     available_models = genai.list_models()
                     valid_gen_models = [m.name for m in available_models if 'generateContent' in m.supported_generation_methods]
-                    for m in ["models/gemini-2.5-flash", "models/gemini-2.5-flash-8b", "models/gemini-1.5-flash", "models/gemini-1.5-flash-8b", "models/gemini-2.5-pro"]:
+                    for m in ["models/gemini-2.5-flash", "models/gemini-2.5-pro"]:
                         if m in valid_gen_models and m not in models_to_try:
                             models_to_try.append(m)
+                    for vm in valid_gen_models:
+                        if vm not in models_to_try:
+                            models_to_try.append(vm)
                 except:
                     pass
                     
-                for fallback_m in ["models/gemini-2.5-flash", "models/gemini-2.5-flash-8b", "models/gemini-1.5-flash", "models/gemini-1.5-flash-8b", "models/gemini-2.5-pro"]:
+                for fallback_m in ["models/gemini-2.5-flash", "models/gemini-2.5-pro"]:
                     if fallback_m not in models_to_try:
                         models_to_try.append(fallback_m)
                         
                 success = False
-                last_error = None
+                errors = []
                 
                 for active_model_name in models_to_try:
                     try:
@@ -517,12 +520,95 @@ if prompt := st.chat_input("Ask a question..."):
                         success = True
                         break
                     except Exception as e:
-                        last_error = e
+                        errors.append((active_model_name, e))
                         # Continue loop to try the next model
                         continue
                         
                 if not success:
-                    raise last_error if last_error else Exception("All fallback generative models failed to respond.")
+                    # Last resort: if Gemini fails but a Groq API key is provided, try Groq!
+                    if groq_key:
+                        try:
+                            st.info("ℹ️ Gemini quota limit reached. Safely falling back to Groq Llama model...")
+                            import requests
+                            headers = {
+                                "Authorization": f"Bearer {groq_key}",
+                                "Content-Type": "application/json"
+                            }
+                            
+                            # Format messages payload
+                            messages_payload = []
+                            if is_smalltalk:
+                                messages_payload.append({
+                                    "role": "system", 
+                                    "content": "Respond politely and briefly to the user's greeting, smalltalk, or acknowledgement. Do not make up facts or mention documentation."
+                                })
+                            elif system_instruction:
+                                messages_payload.append({"role": "system", "content": system_instruction})
+                            else:
+                                messages_payload.append({"role": "system", "content": default_system_prompt})
+                                
+                            if context and not is_smalltalk:
+                                messages_payload.append({"role": "system", "content": f"Context information about {bot_info['name']}:\n{context}"})
+                            
+                            # Load recent history
+                            recent_history = st.session_state.chat_history[-7:-1] if len(st.session_state.chat_history) > 1 else []
+                            for msg in recent_history:
+                                role_type = msg["role"]
+                                messages_payload.append({"role": role_type, "content": msg["content"]})
+                                
+                            messages_payload.append({"role": "user", "content": prompt})
+                            
+                            payload = {
+                                "model": "llama-3.3-70b-versatile",
+                                "messages": messages_payload,
+                                "temperature": float(bot_settings.get("temperature", 0.7)),
+                                "max_tokens": int(bot_settings.get("max_output_tokens", 1024)),
+                                "top_p": float(bot_settings.get("top_p", 0.95)),
+                                "stream": True
+                            }
+                            
+                            response = requests.post(
+                                "https://api.groq.com/openai/v1/chat/completions",
+                                headers=headers,
+                                json=payload,
+                                stream=True
+                            )
+                            
+                            if response.status_code == 200:
+                                # Stream parsing
+                                for line in response.iter_lines():
+                                    if line:
+                                        decoded_line = line.decode('utf-8')
+                                        if decoded_line.startswith("data: "):
+                                            data_str = decoded_line[6:].strip()
+                                            if data_str == "[DONE]":
+                                                break
+                                            try:
+                                                data_json = json.loads(data_str)
+                                                delta = data_json["choices"][0]["delta"].get("content", "")
+                                                full_response += delta
+                                                message_placeholder.markdown(full_response + "▌")
+                                            except:
+                                                pass
+                                message_placeholder.markdown(full_response)
+                                success = True
+                        except:
+                            pass
+                            
+                if not success:
+                    # Find if any error was a 429 rate limit or quota exceed
+                    quota_error = None
+                    for m_name, err in errors:
+                        err_msg = str(err)
+                        if "429" in err_msg or "quota" in err_msg.lower():
+                            quota_error = err
+                            break
+                    if quota_error:
+                        raise quota_error
+                    elif errors:
+                        raise errors[0][1]
+                    else:
+                        raise Exception("All fallback generative models failed to respond.")
             
             # Show sources if RAG was active
             if sources:
