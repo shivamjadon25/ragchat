@@ -213,9 +213,27 @@ if prompt := st.chat_input("Ask a question..."):
                 f"Answer: "
             )
             
+        # Dynamically resolve generation model name from the user's active API
+        generation_model = "gemini-2.5-flash"
+        try:
+            models = genai.list_models()
+            valid_models = [m.name for m in models if 'generateContent' in m.supported_generation_methods]
+            for m in ["models/gemini-2.5-flash", "models/gemini-3.5-flash", "models/gemini-1.5-flash"]:
+                if m in valid_models:
+                    generation_model = m
+                    break
+            else:
+                flash_models = [m for m in valid_models if "flash" in m]
+                if flash_models:
+                    generation_model = flash_models[0]
+                elif valid_models:
+                    generation_model = valid_models[0]
+        except Exception as e:
+            pass
+            
         try:
             model = genai.GenerativeModel(
-                model_name="gemini-1.5-flash",
+                model_name=generation_model,
                 system_instruction=system_prompt if context else None
             )
             

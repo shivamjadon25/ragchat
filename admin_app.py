@@ -3,6 +3,7 @@ import google.generativeai as genai
 import numpy as np
 import pypdf
 import os
+import time
 import requests
 import urllib3
 from bs4 import BeautifulSoup
