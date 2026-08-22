@@ -6,6 +6,8 @@ import os
 import time
 import requests
 import urllib3
+import json
+import pandas as pd
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse, urljoin
 from supabase import create_client, Client
@@ -17,8 +19,28 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 st.set_page_config(
     page_title="RAG Chatbot Admin Portal",
     page_icon="⚙️",
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
+
+# Settings File Path
+SETTINGS_FILE = "/home/user/Documents/Projects/chatbot/bot_settings.json"
+
+def load_bot_settings():
+    if os.path.exists(SETTINGS_FILE):
+        try:
+            with open(SETTINGS_FILE, "r") as f:
+                return json.load(f)
+        except:
+            pass
+    return {}
+
+def save_bot_settings(settings):
+    try:
+        with open(SETTINGS_FILE, "w") as f:
+            json.dump(settings, f, indent=2)
+    except Exception as e:
+        st.error(f"Error saving model settings: {e}")
 
 # Helper: Initialize Supabase Client
 def get_supabase_client(url, key):
@@ -116,7 +138,6 @@ def chunk_text(text, chunk_size=1000, chunk_overlap=200):
 def generate_embeddings(chunks, api_key):
     genai.configure(api_key=api_key)
     
-    # 1. Dynamically resolve embedding model name from the user's active API
     embedding_model = "models/text-embedding-004"
     try:
         models = genai.list_models()
@@ -129,7 +150,6 @@ def generate_embeddings(chunks, api_key):
             if valid_models:
                 embedding_model = valid_models[0]
     except Exception as e:
-        # Fallback default if API permissions block model listing
         pass
 
     embeddings = []
@@ -143,7 +163,6 @@ def generate_embeddings(chunks, api_key):
                 content=batch,
                 task_type="retrieval_document"
             )
-            # Ensure every vector fits the database column limit (slicing MRL dimensions to 768 if needed)
             sliced = [emb[:768] for emb in result['embedding']]
             embeddings.extend(sliced)
         except Exception as e:
@@ -154,30 +173,89 @@ def generate_embeddings(chunks, api_key):
     progress_bar.empty()
     return embeddings
 
-# ----------------- SIDEBAR SETTINGS -----------------
+# Inject Custom CSS for beautiful and minimal layout
+st.markdown("""
+<style>
+    /* Styling for metrics cards */
+    .metric-card {
+        background-color: var(--secondary-background-color);
+        border: 1px solid rgba(128, 128, 128, 0.15);
+        border-radius: 12px;
+        padding: 24px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.02);
+        margin-bottom: 20px;
+        text-align: center;
+        transition: transform 0.2s, box-shadow 0.2s;
+    }
+    .metric-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 12px rgba(0, 0, 0, 0.05);
+    }
+    .metric-value {
+        font-size: 2.25rem;
+        font-weight: 700;
+        color: var(--primary-color);
+        margin-bottom: 4px;
+    }
+    .metric-label {
+        font-size: 0.85rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        opacity: 0.8;
+        font-weight: 600;
+    }
+    
+    /* Dialogue chat bubble styling for conversation logs */
+    .chat-bubble {
+        padding: 14px 18px;
+        border-radius: 12px;
+        margin-bottom: 12px;
+        line-height: 1.5;
+        font-size: 0.95rem;
+        border: 1px solid rgba(128, 128, 128, 0.12);
+    }
+    .chat-user {
+        background-color: rgba(0, 123, 255, 0.08);
+        border-left: 4px solid #007bff;
+    }
+    .chat-assistant {
+        background-color: var(--secondary-background-color);
+        border-left: 4px solid #28a745;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# ----------------- SIDEBAR CONFIG & NAVIGATION -----------------
 with st.sidebar:
-    st.title("🔑 Service Configuration")
-    st.markdown("Enter credentials to connect to your database and LLM APIs.")
+    st.markdown("## ⚙️ Portal Controls")
     
-    # Supabase URLs and API Key
-    sb_url = st.text_input(
-        "Supabase Project URL:",
-        value=st.secrets.get("SUPABASE_URL", os.environ.get("SUPABASE_URL", "")),
-        placeholder="https://xxxx.supabase.co"
-    )
+    # Credentials block
+    sb_url = st.secrets.get("SUPABASE_URL", os.environ.get("SUPABASE_URL", ""))
+    sb_key = st.secrets.get("SUPABASE_KEY", os.environ.get("SUPABASE_KEY", ""))
+    gemini_key = st.secrets.get("GEMINI_API_KEY", os.environ.get("GEMINI_API_KEY", ""))
     
-    sb_key = st.text_input(
-        "Supabase API Key (service_role or anon):",
-        type="password",
-        value=st.secrets.get("SUPABASE_KEY", os.environ.get("SUPABASE_KEY", "")),
-        placeholder="eyJhbG..."
-    )
-    
-    gemini_key = st.text_input(
-        "Gemini API Key:",
-        type="password",
-        value=st.secrets.get("GEMINI_API_KEY", os.environ.get("GEMINI_API_KEY", "")),
-        placeholder="AIzaSy..."
+    with st.expander("🔑 Credentials Config", expanded=not (sb_url and sb_key and gemini_key)):
+        sb_url_in = st.text_input("Supabase Project URL:", value=sb_url, placeholder="https://xxxx.supabase.co")
+        sb_key_in = st.text_input("Supabase API Key:", type="password", value=sb_key, placeholder="eyJhbG...")
+        gemini_key_in = st.text_input("Gemini API Key:", type="password", value=gemini_key, placeholder="AIzaSy...")
+        
+        # Override if inputs given
+        if sb_url_in: sb_url = sb_url_in
+        if sb_key_in: sb_key = sb_key_in
+        if gemini_key_in: gemini_key = gemini_key_in
+
+    st.markdown("---")
+    st.markdown("### 🧭 Main Navigation")
+    menu = st.radio(
+        "Navigation",
+        [
+            "🏠 Dashboard",
+            "📥 Ingestion & Sources",
+            "📊 Bot Analytics",
+            "💬 Conversation Logs",
+            "⚙️ GenAI & Model Settings"
+        ],
+        label_visibility="collapsed"
     )
 
 # Stop app execution if parameters are missing
@@ -190,24 +268,108 @@ supabase = get_supabase_client(sb_url, sb_key)
 if not supabase:
     st.stop()
 
-# ----------------- MAIN APP TABS -----------------
-st.title("⚙️ RAG Chatbot Admin Portal")
-st.markdown("Configure chatbots, crawl/ingest websites, and monitor conversation metrics.")
+# Helper: Fetch Bots
+def fetch_bots():
+    try:
+        bots_response = supabase.table("bots").select("*").order("created_at", desc=True).execute()
+        return bots_response.data or []
+    except Exception as e:
+        st.error(f"Error retrieving bots: {e}")
+        return []
 
-tab1, tab2 = st.tabs(["🤖 Bot Management", "📊 Analytics & Chat Logs"])
+# Helper: Count Documents
+def count_documents(bot_id):
+    try:
+        doc_count_res = supabase.table("documents").select("id", count="exact").eq("bot_id", bot_id).execute()
+        return doc_count_res.count if doc_count_res.count is not None else 0
+    except:
+        return 0
 
-with tab1:
+# Dialogue Modal function
+@st.dialog("Full Conversation History", width="large")
+def view_full_conversation_dialog(conv_id, bot_name):
+    try:
+        msgs_res = supabase.table("messages").select("*").eq("conversation_id", conv_id).order("created_at", desc=False).execute()
+        messages = msgs_res.data or []
+    except Exception as e:
+        st.error(f"Error loading transcript: {e}")
+        return
+        
+    st.markdown(f"### Chat Session with {bot_name}")
+    st.caption(f"Session ID: `{conv_id}`")
+    st.markdown("---")
+    
+    if not messages:
+        st.info("No messages in this conversation session.")
+    else:
+        for msg in messages:
+            role = msg["role"]
+            content = msg["content"]
+            created = msg["created_at"][:19].replace("T", " ")
+            
+            role_label = "👤 User" if role == "user" else "🤖 Assistant"
+            class_name = "chat-user" if role == "user" else "chat-assistant"
+            
+            st.markdown(
+                f"<div class='chat-bubble {class_name}'>"
+                f"<strong>{role_label}</strong> <span style='font-size:0.8rem; opacity:0.7; float:right;'>{created}</span>"
+                f"<div style='margin-top: 6px; white-space: pre-wrap;'>{content}</div>"
+                f"</div>",
+                unsafe_allow_html=True
+            )
+
+# ----------------- NAVIGATION ROUTING -----------------
+
+# 1. DASHBOARD
+if menu == "🏠 Dashboard":
+    st.markdown("<h1 style='margin-bottom:0;'>🏠 Dashboard</h1>", unsafe_allow_html=True)
+    st.markdown("<p style='font-size:1.1rem; opacity:0.8; margin-bottom:2rem;'>Register bots, view status metrics, and overview active resources.</p>", unsafe_allow_html=True)
+    
+    bots = fetch_bots()
+    
+    # Load Overview statistics
+    total_bots = len(bots)
+    total_convs = 0
+    total_chunks = 0
+    
+    try:
+        convs_res = supabase.table("conversations").select("id", count="exact").execute()
+        total_convs = convs_res.count if convs_res.count is not None else 0
+        docs_res = supabase.table("documents").select("id", count="exact").execute()
+        total_chunks = docs_res.count if docs_res.count is not None else 0
+    except:
+        pass
+        
+    # KPIs Row
+    kpi_col1, kpi_col2, kpi_col3 = st.columns(3)
+    with kpi_col1:
+        st.markdown(
+            f"<div class='metric-card'><div class='metric-value'>{total_bots}</div><div class='metric-label'>Active Chatbots</div></div>",
+            unsafe_allow_html=True
+        )
+    with kpi_col2:
+        st.markdown(
+            f"<div class='metric-card'><div class='metric-value'>{total_convs}</div><div class='metric-label'>Total Conversations</div></div>",
+            unsafe_allow_html=True
+        )
+    with kpi_col3:
+        st.markdown(
+            f"<div class='metric-card'><div class='metric-value'>{total_chunks}</div><div class='metric-label'>Ingested Text Chunks</div></div>",
+            unsafe_allow_html=True
+        )
+        
+    st.markdown("---")
+    
     col1, col2 = st.columns([1, 2])
     
-    # Column 1: Create a Bot
     with col1:
-        st.subheader("Create a New Bot")
+        st.subheader("🤖 Create a New Chatbot")
         with st.form("create_bot_form", clear_on_submit=True):
             bot_id = st.text_input("Bot Unique ID (e.g. acme-corp):", placeholder="letters, numbers, hyphens only").strip().lower()
             bot_name = st.text_input("Bot Name (e.g. Acme Corp Assistant):", placeholder="Enter display name")
             website_url = st.text_input("Website URL (e.g. https://acme.com):", placeholder="Optional website base URL")
             
-            submit_bot = st.form_submit_button("Create Chatbot")
+            submit_bot = st.form_submit_button("Create Chatbot", use_container_width=True)
             
             if submit_bot:
                 if not bot_id or not bot_name:
@@ -216,7 +378,6 @@ with tab1:
                     st.error("Bot Unique ID cannot contain spaces.")
                 else:
                     try:
-                        # Insert bot into DB
                         supabase.table("bots").insert({
                             "id": bot_id,
                             "name": bot_name,
@@ -227,55 +388,84 @@ with tab1:
                         st.rerun()
                     except Exception as e:
                         st.error(f"Error creating bot (check if ID already exists): {e}")
-
-    # Column 2: Manage & Ingest Websites
+                        
     with col2:
-        st.subheader("Manage Active Bots & RAG Ingestion")
-        
-        # Load bots
-        try:
-            bots_response = supabase.table("bots").select("*").order("created_at", desc=True).execute()
-            bots = bots_response.data
-        except Exception as e:
-            st.error(f"Error retrieving bots: {e}")
-            bots = []
-            
+        st.subheader("📋 Registered Chatbots List")
         if not bots:
             st.info("No chatbots registered yet. Create one on the left.")
         else:
-            bot_names_map = {bot["name"]: bot["id"] for bot in bots}
-            selected_bot_name = st.selectbox("Select Chatbot to Manage:", list(bot_names_map.keys()))
-            selected_bot_id = bot_names_map[selected_bot_name]
+            bot_df_data = []
+            for b in bots:
+                chunks = count_documents(b["id"])
+                created_at = b["created_at"][:10] if b["created_at"] else "N/A"
+                bot_df_data.append({
+                    "Name": b["name"],
+                    "ID": b["id"],
+                    "Website": b["website_url"] or "None provided",
+                    "Ingested Chunks": chunks,
+                    "Created At": created_at
+                })
             
-            # Fetch select bot details
-            selected_bot = next(b for b in bots if b["id"] == selected_bot_id)
+            df = pd.DataFrame(bot_df_data)
+            st.dataframe(df, use_container_width=True, hide_index=True)
             
-            # Get document count
-            try:
-                doc_count_res = supabase.table("documents").select("id", count="exact").eq("bot_id", selected_bot_id).execute()
-                doc_count = doc_count_res.count if doc_count_res.count is not None else 0
-            except:
-                doc_count = 0
+            # Quick Delete Bot option
+            with st.expander("🔴 Dangerous Zone - Delete Chatbot"):
+                bot_names_map = {b["name"]: b["id"] for b in bots}
+                selected_del_name = st.selectbox("Select Chatbot to Delete:", list(bot_names_map.keys()), key="del_selectbox")
+                selected_del_id = bot_names_map[selected_del_name]
                 
-            st.write(f"**Bot ID:** `{selected_bot_id}`")
-            st.write(f"**Base Website:** {selected_bot['website_url'] or 'Not provided'}")
-            st.write(f"**Ingested Chunks in DB:** {doc_count}")
-            
-            # Direct link to the public chatbot
-            # Assumes the chatbot app is running, developer can append URL parameters
-            st.markdown(f"🔗 **Client Chatbot URL:** `https://your-chatbot-client.streamlit.app/?botId={selected_bot_id}`")
-            
-            st.markdown("---")
-            
-            # Ingestion Control
-            st.markdown("#### Ingest Website Content")
+                confirm_del = st.checkbox(f"I understand that deleting '{selected_del_name}' removes all conversations and RAG documents.")
+                if st.button("Delete Chatbot Completely", type="primary", use_container_width=True):
+                    if confirm_del:
+                        try:
+                            supabase.table("bots").delete().eq("id", selected_del_id).execute()
+                            st.success(f"Bot '{selected_del_name}' has been deleted.")
+                            time.sleep(1)
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Error deleting bot: {e}")
+                    else:
+                        st.warning("Please check the confirmation box.")
+
+# 2. INGESTION & SOURCES
+elif menu == "📥 Ingestion & Sources":
+    st.markdown("<h1 style='margin-bottom:0;'>📥 Ingestion & Data Sources</h1>", unsafe_allow_html=True)
+    st.markdown("<p style='font-size:1.1rem; opacity:0.8; margin-bottom:2rem;'>Crawl and ingest content to feed the RAG vector database.</p>", unsafe_allow_html=True)
+    
+    bots = fetch_bots()
+    if not bots:
+        st.info("Please register a chatbot first on the Dashboard menu.")
+    else:
+        bot_names_map = {b["name"]: b["id"] for b in bots}
+        selected_bot_name = st.selectbox("Select Chatbot to Manage Knowledge:", list(bot_names_map.keys()))
+        selected_bot_id = bot_names_map[selected_bot_name]
+        selected_bot = next(b for b in bots if b["id"] == selected_bot_id)
+        
+        doc_count = count_documents(selected_bot_id)
+        
+        # Display Bot Info card
+        st.markdown(
+            f"<div style='background-color:var(--secondary-background-color); border:1px solid rgba(128,128,128,0.15); padding:16px; border-radius:10px; margin-bottom:20px;'>"
+            f"<strong>Selected Bot ID:</strong> <code>{selected_bot_id}</code> | "
+            f"<strong>Base URL:</strong> {selected_bot['website_url'] or 'Not provided'} | "
+            f"<strong>Total Chunks in DB:</strong> {doc_count}"
+            f"</div>",
+            unsafe_allow_html=True
+        )
+        
+        col1, col2 = st.columns([2, 3])
+        
+        with col1:
+            st.subheader("🚀 Crawl & Ingest Webpage")
             default_url = selected_bot["website_url"] or "https://"
-            crawl_url = st.text_input("Ingestion Start URL:", value=default_url, key="crawl_url")
-            max_crawl = st.number_value = st.number_input("Max Pages to Crawl:", min_value=1, max_value=100, value=15, key="max_crawl")
+            crawl_url = st.text_input("Ingestion Start URL:", value=default_url)
+            max_crawl = st.number_input("Max Pages to Crawl:", min_value=1, max_value=100, value=15)
             
-            col_b1, col_b2 = st.columns(2)
-            with col_b1:
-                if st.button("🚀 Crawl & Ingest Now", use_container_width=True):
+            ingest_col1, ingest_col2 = st.columns(2)
+            
+            with ingest_col1:
+                if st.button("🚀 Run Ingestion", use_container_width=True, type="primary"):
                     if not crawl_url or crawl_url == "https://":
                         st.error("Please enter a valid website URL.")
                     else:
@@ -299,7 +489,6 @@ with tab1:
                             if all_chunks:
                                 embeddings = generate_embeddings(all_chunks, gemini_key)
                                 if embeddings:
-                                    # Prepare rows for insert
                                     db_rows = []
                                     for idx, chunk in enumerate(all_chunks):
                                         db_rows.append({
@@ -309,7 +498,6 @@ with tab1:
                                             "embedding": embeddings[idx]
                                         })
                                     
-                                    # Insert in batches
                                     with st.spinner("Saving documents to database..."):
                                         try:
                                             batch_size = 50
@@ -323,8 +511,8 @@ with tab1:
                             else:
                                 st.error("No valid text extracted to chunk.")
                                 
-            with col_b2:
-                if st.button("🗑️ Clear Ingested Data", use_container_width=True):
+            with ingest_col2:
+                if st.button("🗑️ Clear All Ingestion Chunks", use_container_width=True):
                     try:
                         supabase.table("documents").delete().eq("bot_id", selected_bot_id).execute()
                         st.success("Successfully deleted all ingested documents for this bot.")
@@ -333,107 +521,280 @@ with tab1:
                     except Exception as e:
                         st.error(f"Error deleting documents: {e}")
                         
-            st.markdown("---")
-            # Delete Bot completely
-            if st.button("🔴 Delete Chatbot Completely", use_container_width=True):
-                try:
-                    supabase.table("bots").delete().eq("id", selected_bot_id).execute()
-                    st.success(f"Bot '{selected_bot_name}' deleted.")
-                    time.sleep(1)
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Error deleting bot: {e}")
+        with col2:
+            st.subheader("🔗 Ingested URLs & Sources")
+            
+            # Fetch URL chunk counts
+            try:
+                docs_res = supabase.table("documents").select("url").eq("bot_id", selected_bot_id).execute()
+                docs_data = docs_res.data or []
+                
+                if not docs_data:
+                    st.info("No pages crawled or ingested yet.")
+                else:
+                    url_counts = {}
+                    for d in docs_data:
+                        u = d["url"]
+                        url_counts[u] = url_counts.get(u, 0) + 1
+                    
+                    df_urls = pd.DataFrame([{"URL Source": u, "Chunks": c} for u, c in url_counts.items()])
+                    st.dataframe(df_urls, use_container_width=True, hide_index=True)
+            except Exception as e:
+                st.error(f"Error loading ingested sources: {e}")
 
-# ----------------- ANALYTICS & LOGS TAB -----------------
-with tab2:
-    st.subheader("Chatbot Performance & Logs")
+# 3. BOT ANALYTICS
+elif menu == "📊 Bot Analytics":
+    st.markdown("<h1 style='margin-bottom:0;'>📊 Bot Analytics & Usage</h1>", unsafe_allow_html=True)
+    st.markdown("<p style='font-size:1.1rem; opacity:0.8; margin-bottom:2rem;'>Visualize message volume, conversation history logs, and traffic graphs.</p>", unsafe_allow_html=True)
     
-    # Load bots list for filter
-    try:
-        bots_response = supabase.table("bots").select("*").execute()
-        bots_list = bots_response.data
-    except Exception as e:
-        st.error(f"Error: {e}")
-        bots_list = []
-        
-    if not bots_list:
-        st.info("Create a bot first to monitor analytics.")
+    bots = fetch_bots()
+    if not bots:
+        st.info("Create a bot first to view analytics.")
     else:
-        bot_ids_list = [bot["id"] for bot in bots_list]
-        selected_perf_bot = st.selectbox("Select Bot to View Performance:", bot_ids_list)
+        bot_names_map = {b["name"]: b["id"] for b in bots}
+        bot_ids_list = ["All Bots (Combined)"] + list(bot_names_map.values())
         
-        # Load Analytics metrics
+        selected_perf_bot = st.selectbox("Select Chatbot to View Performance:", bot_ids_list)
+        
+        # Load analytics
         try:
-            # Get total conversations
-            conversations_res = supabase.table("conversations").select("*").eq("bot_id", selected_perf_bot).order("created_at", desc=True).execute()
-            conversations = conversations_res.data
+            # 1. Fetch Conversations
+            if selected_perf_bot == "All Bots (Combined)":
+                conversations_res = supabase.table("conversations").select("*").execute()
+            else:
+                conversations_res = supabase.table("conversations").select("*").eq("bot_id", selected_perf_bot).execute()
+            conversations = conversations_res.data or []
             total_convs = len(conversations)
             
-            # Get total messages (via join/filter, count messages where conversation's bot_id match)
-            # To do this simply, we fetch messages belonging to these conversation IDs
+            # 2. Fetch Messages
             conv_ids = [c["id"] for c in conversations]
-            
-            total_msgs = 0
-            messages_by_conv = {}
-            
+            all_msgs = []
             if conv_ids:
-                messages_res = supabase.table("messages").select("*").in_("conversation_id", conv_ids).order("created_at", desc=False).execute()
-                all_msgs = messages_res.data
-                total_msgs = len(all_msgs)
-                
-                # Group messages by conversation ID
-                for msg in all_msgs:
-                    c_id = msg["conversation_id"]
-                    if c_id not in messages_by_conv:
-                        messages_by_conv[c_id] = []
-                    messages_by_conv[c_id].append(msg)
+                batch_size = 100
+                for i in range(0, len(conv_ids), batch_size):
+                    batch = conv_ids[i:i+batch_size]
+                    messages_res = supabase.table("messages").select("*").in_("conversation_id", batch).execute()
+                    if messages_res.data:
+                        all_msgs.extend(messages_res.data)
+                        
+            total_msgs = len(all_msgs)
         except Exception as e:
             st.error(f"Error fetching analytics data: {e}")
             total_convs, total_msgs = 0, 0
             conversations = []
-            messages_by_conv = {}
+            all_msgs = []
             
         # Display KPIs
-        kpi1, kpi2, kpi3 = st.columns(3)
-        with kpi1:
-            st.metric("Total Conversations", total_convs)
-        with kpi2:
-            st.metric("Total Messages Exchanged", total_msgs)
-        with kpi3:
-            avg_length = round(total_msgs / total_convs, 1) if total_convs > 0 else 0
-            st.metric("Avg Messages per Conv", avg_length)
+        col_k1, col_k2, col_k3 = st.columns(3)
+        with col_k1:
+            st.markdown(
+                f"<div class='metric-card'><div class='metric-value'>{total_convs}</div><div class='metric-label'>Conversations</div></div>",
+                unsafe_allow_html=True
+            )
+        with col_k2:
+            st.markdown(
+                f"<div class='metric-card'><div class='metric-value'>{total_msgs}</div><div class='metric-label'>Total Messages</div></div>",
+                unsafe_allow_html=True
+            )
+        with col_k3:
+            avg_len = round(total_msgs / total_convs, 1) if total_convs > 0 else 0
+            st.markdown(
+                f"<div class='metric-card'><div class='metric-value'>{avg_len}</div><div class='metric-label'>Avg Messages per Session</div></div>",
+                unsafe_allow_html=True
+            )
             
         st.markdown("---")
-        st.subheader("Conversation History Transcripts")
         
+        # Display Graphs
         if not conversations:
-            st.info("No client conversations logged yet for this bot.")
+            st.info("No conversational logs recorded yet.")
         else:
-            # Layout: Select conversation on the left, view transcript on the right
-            left_col, right_col = st.columns([1, 2])
+            col_g1, col_g2 = st.columns(2)
             
-            with left_col:
-                st.write("**Conversations List (Newest first)**")
-                conv_options = {f"Session {conv['id'][:8]}... (Started {conv['created_at'][:19]})": conv["id"] for conv in conversations}
-                selected_conv_label = st.radio("Select Session:", list(conv_options.keys()))
-                selected_conv_id = conv_options[selected_conv_label]
+            # Conversions Volume by Date
+            with col_g1:
+                df_conv = pd.DataFrame(conversations)
+                df_conv["created_at"] = pd.to_datetime(df_conv["created_at"])
+                df_conv["date"] = df_conv["created_at"].dt.date
+                conv_by_date = df_conv.groupby("date").size().reset_index(name="Conversations")
                 
-            with right_col:
-                st.write(f"**Session Log:** `{selected_conv_id}`")
-                st.markdown("<div style='border:1px solid #ddd; padding:15px; border-radius:5px; background-color:#f9f9f9; max-height:400px; overflow-y:auto;'>", unsafe_allow_html=True)
+                st.markdown("#### 📈 Daily Conversations Volume")
+                st.line_chart(conv_by_date.set_index("date"), use_container_width=True)
                 
-                conv_messages = messages_by_conv.get(selected_conv_id, [])
-                if not conv_messages:
-                    st.write("No messages in this session.")
+            # Messages Volume by Date
+            with col_g2:
+                if all_msgs:
+                    df_msg = pd.DataFrame(all_msgs)
+                    df_msg["created_at"] = pd.to_datetime(df_msg["created_at"])
+                    df_msg["date"] = df_msg["created_at"].dt.date
+                    msg_by_date = df_msg.groupby("date").size().reset_index(name="Messages")
+                    
+                    st.markdown("#### 💬 Daily Message Traffic")
+                    st.area_chart(msg_by_date.set_index("date"), use_container_width=True)
                 else:
-                    for msg in conv_messages:
-                        role_label = "**👤 User**" if msg["role"] == "user" else "**🤖 Assistant**"
-                        bg_color = "#e6f3ff" if msg["role"] == "user" else "#ffffff"
-                        st.markdown(
-                            f"<div style='background-color:{bg_color}; padding:10px; margin-bottom:8px; border-radius:4px; border-left: 3px solid #007bff;'>"
-                            f"{role_label} <small style='color:gray;'>{msg['created_at'][11:19]}</small><br>"
-                            f"{msg['content']}"
-                            f"</div>",
-                            unsafe_allow_html=True
-                        )
-                st.markdown("</div>", unsafe_allow_html=True)
+                    st.info("No message records found to display traffic.")
+                    
+            st.markdown("---")
+            
+            col_g3, col_g4 = st.columns(2)
+            
+            # Bot usage distribution (Only if Combined selected)
+            with col_g3:
+                if selected_perf_bot == "All Bots (Combined)":
+                    bot_names = {b["id"]: b["name"] for b in bots}
+                    df_conv["bot_name"] = df_conv["bot_id"].map(bot_names)
+                    bot_counts = df_conv["bot_name"].value_counts().reset_index(name="Conversations")
+                    
+                    st.markdown("#### 🤖 Usage Distribution by Bot")
+                    st.bar_chart(bot_counts.set_index("bot_name"), use_container_width=True)
+                else:
+                    # Message Distribution by Role for single bot
+                    if all_msgs:
+                        df_msg = pd.DataFrame(all_msgs)
+                        role_counts = df_msg["role"].value_counts().reset_index(name="Count")
+                        role_counts["role"] = role_counts["role"].replace({"user": "👤 User", "assistant": "🤖 Assistant"})
+                        
+                        st.markdown("#### 🗣️ Communication Share by Role")
+                        st.bar_chart(role_counts.set_index("role"), use_container_width=True)
+                    else:
+                        st.info("No logs to view message communication share.")
+                        
+            # Distribution of conversation length
+            with col_g4:
+                if all_msgs:
+                    df_msg = pd.DataFrame(all_msgs)
+                    session_lengths = df_msg.groupby("conversation_id").size().reset_index(name="Messages Exchanged")
+                    length_distribution = session_lengths["Messages Exchanged"].value_counts().reset_index(name="Count")
+                    length_distribution.rename(columns={"Messages Exchanged": "Session Length (Messages)"}, inplace=True)
+                    
+                    st.markdown("#### 📊 Session Length Distribution")
+                    st.bar_chart(length_distribution.set_index("Session Length (Messages)"), use_container_width=True)
+                else:
+                    st.info("No dialogue histories to compute session length distribution.")
+
+# 4. CONVERSATION LOGS
+elif menu == "💬 Conversation Logs":
+    st.markdown("<h1 style='margin-bottom:0;'>💬 Conversation Transcripts</h1>", unsafe_allow_html=True)
+    st.markdown("<p style='font-size:1.1rem; opacity:0.8; margin-bottom:2rem;'>Audit chatbot history transcripts and user messages.</p>", unsafe_allow_html=True)
+    
+    bots = fetch_bots()
+    if not bots:
+        st.info("Create a bot first to audit conversation histories.")
+    else:
+        bot_names_map = {b["name"]: b["id"] for b in bots}
+        bot_names_map_reverse = {b["id"]: b["name"] for b in bots}
+        
+        selected_logs_bot = st.selectbox("Select Chatbot to Inspect Logs:", list(bot_names_map.keys()))
+        selected_bot_id = bot_names_map[selected_logs_bot]
+        
+        # Fetch sessions
+        try:
+            conversations_res = supabase.table("conversations").select("*").eq("bot_id", selected_bot_id).order("created_at", desc=True).execute()
+            conversations = conversations_res.data or []
+            
+            # Load messages counts
+            conv_ids = [c["id"] for c in conversations]
+            messages_by_conv = {}
+            if conv_ids:
+                batch_size = 100
+                for i in range(0, len(conv_ids), batch_size):
+                    batch = conv_ids[i:i+batch_size]
+                    msgs_res = supabase.table("messages").select("id", "conversation_id").in_("conversation_id", batch).execute()
+                    msgs_data = msgs_res.data or []
+                    for m in msgs_data:
+                        c_id = m["conversation_id"]
+                        messages_by_conv[c_id] = messages_by_conv.get(c_id, 0) + 1
+        except Exception as e:
+            st.error(f"Error fetching conversation sessions: {e}")
+            conversations = []
+            messages_by_conv = {}
+            
+        if not conversations:
+            st.info("No active conversation logs logged yet for this bot.")
+        else:
+            st.markdown("### Conversation Sessions List")
+            st.markdown("Click **🔍 View Transcript** to audit the complete dialogue in a popup modal.")
+            
+            # List sessions with columns
+            col_h1, col_h2, col_h3, col_h4 = st.columns([2, 3, 2, 3])
+            with col_h1:
+                st.markdown("**Session UUID (Short)**")
+            with col_h2:
+                st.markdown("**Start Date & Time**")
+            with col_h3:
+                st.markdown("**Messages Count**")
+            with col_h4:
+                st.markdown("**Actions**")
+            
+            st.markdown("---")
+            
+            for conv in conversations:
+                conv_id = conv["id"]
+                msg_count = messages_by_conv.get(conv_id, 0)
+                created_str = conv["created_at"][:19].replace("T", " ")
+                
+                col_c1, col_c2, col_c3, col_c4 = st.columns([2, 3, 2, 3])
+                with col_c1:
+                    st.code(f"{conv_id[:8]}...")
+                with col_c2:
+                    st.write(created_str)
+                with col_c3:
+                    st.write(msg_count)
+                with col_c4:
+                    if st.button("🔍 View Transcript", key=f"btn_view_{conv_id}", use_container_width=True):
+                        view_full_conversation_dialog(conv_id, selected_logs_bot)
+
+# 5. GENAI & MODEL SETTINGS
+elif menu == "⚙️ GenAI & Model Settings":
+    st.markdown("<h1 style='margin-bottom:0;'>⚙️ GenAI Model Configuration</h1>", unsafe_allow_html=True)
+    st.markdown("<p style='font-size:1.1rem; opacity:0.8; margin-bottom:2rem;'>Fine-tune generation temperature, persona system prompt instructions, and LLM parameter settings.</p>", unsafe_allow_html=True)
+    
+    bots = fetch_bots()
+    if not bots:
+        st.info("Create a bot first to modify model configuration.")
+    else:
+        bot_names_map = {b["name"]: b["id"] for b in bots}
+        selected_settings_bot = st.selectbox("Select Chatbot to Configure Settings:", list(bot_names_map.keys()))
+        selected_bot_id = bot_names_map[selected_settings_bot]
+        
+        # Load settings
+        all_settings = load_bot_settings()
+        bot_settings = all_settings.get(selected_bot_id, {})
+        
+        st.markdown("### 🛠️ Model Parameters")
+        
+        with st.form("model_settings_form"):
+            # Select Model
+            model_options = ["models/gemini-2.5-flash", "models/gemini-3.5-flash", "models/gemini-2.5-pro"]
+            current_model = bot_settings.get("model_name", "models/gemini-2.5-flash")
+            if current_model not in model_options:
+                model_options.append(current_model)
+            model_selection = st.selectbox("LLM Model Name:", model_options, index=model_options.index(current_model))
+            
+            # Prompt configuration
+            default_prompt = (
+                f"You are a helpful customer support agent representing {selected_settings_bot}. "
+                "Your answers should be friendly, conversational, and direct. "
+                "Base your answer ONLY on the provided Context below. If the answer cannot be found in the context, "
+                "politely state that you do not have that information and suggest contacting human support. "
+                "Do not make up facts."
+            )
+            system_prompt = st.text_area("System Prompt (Persona Instructions):", value=bot_settings.get("system_prompt", default_prompt), height=150)
+            
+            # SLiders
+            temperature = st.slider("Temperature (Creativity):", min_value=0.0, max_value=2.0, value=float(bot_settings.get("temperature", 0.7)), step=0.1)
+            top_p = st.slider("Top-P (Nucleus Sampling):", min_value=0.0, max_value=1.0, value=float(bot_settings.get("top_p", 0.95)), step=0.05)
+            max_tokens = st.number_input("Max Output Tokens Limit:", min_value=1, max_value=8192, value=int(bot_settings.get("max_output_tokens", 1024)))
+            
+            save_submit = st.form_submit_button("💾 Save Configuration Settings", use_container_width=True, type="primary")
+            
+            if save_submit:
+                all_settings[selected_bot_id] = {
+                    "model_name": model_selection,
+                    "system_prompt": system_prompt,
+                    "temperature": temperature,
+                    "top_p": top_p,
+                    "max_output_tokens": max_tokens
+                }
+                save_bot_settings(all_settings)
+                st.success("Configuration successfully saved!")
