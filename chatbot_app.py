@@ -879,13 +879,18 @@ if st.session_state.chat_open:
         """
         <iframe src="about:blank" style="display:none;" onload="
             const scroll = () => {
-                const scrollables = window.parent.document.querySelectorAll('div[data-testid=\"stChatMessageContainer\"], [data-testid=\"stElementContainer\"] div[style*=\"overflow\"]');
+                const scrollables = window.parent.document.querySelectorAll('div[data-testid=\"stChatMessageContainer\"], div[data-testid=\"element-container\"] div[style*=\"overflow\"], div.stElementContainer div[style*=\"overflow\"]');
                 scrollables.forEach(el => {
                     el.scrollTop = el.scrollHeight;
                 });
             };
+            // Perform multiple scroll attempts to catch streaming and delayed rendering
+            scroll();
             setTimeout(scroll, 50);
-            setTimeout(scroll, 250);
+            setTimeout(scroll, 150);
+            setTimeout(scroll, 300);
+            setTimeout(scroll, 600);
+            setTimeout(scroll, 1000);
         "></iframe>
         """
     )
