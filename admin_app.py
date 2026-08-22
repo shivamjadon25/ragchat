@@ -811,7 +811,9 @@ elif menu == "⚙️ GenAI & Model Settings":
             "Your answers should be friendly, conversational, and direct. "
             "Base your answer ONLY on the provided Context below. If the answer cannot be found in the context, "
             "politely state that you do not have that information and suggest contacting human support. "
-            "Do not make up facts."
+            "Do not make up facts. "
+            "IMPORTANT: Output ONLY the final response to the user. Do not include any chain of thought, reasoning, "
+            "notes, drafts, self-corrections, or internal explanations. Start your response directly."
         )
         system_prompt = st.text_area("System Prompt (Persona Instructions):", value=bot_settings.get("system_prompt", default_prompt), height=150)
         

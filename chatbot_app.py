@@ -357,7 +357,9 @@ if prompt := st.chat_input("Ask a question..."):
             "Your answers should be friendly, conversational, and direct. "
             "Base your answer ONLY on the provided Context below. If the answer cannot be found in the context, "
             "politely state that you do not have that information and suggest contacting human support. "
-            "Do not make up facts."
+            "Do not make up facts. "
+            "IMPORTANT: Output ONLY the final response to the user. Do not include any chain of thought, reasoning, "
+            "notes, drafts, self-corrections, or internal explanations. Start your response directly."
         )
         system_instruction = bot_settings.get("system_prompt")
         if not system_instruction:
@@ -425,13 +427,11 @@ if prompt := st.chat_input("Ask a question..."):
                         "role": "system", 
                         "content": "Respond politely and briefly to the user's greeting, smalltalk, or acknowledgement. Do not make up facts or mention documentation."
                     })
-                elif system_instruction:
-                    messages_payload.append({"role": "system", "content": system_instruction})
                 else:
-                    messages_payload.append({"role": "system", "content": default_system_prompt})
-                    
-                if context and not is_smalltalk:
-                    messages_payload.append({"role": "system", "content": f"Context information about {bot_info['name']}:\n{context}"})
+                    sys_content = system_instruction if system_instruction else default_system_prompt
+                    if context:
+                        sys_content += f"\n\nContext information about {bot_info['name']}:\n{context}"
+                    messages_payload.append({"role": "system", "content": sys_content})
                 
                 # Load recent history
                 recent_history = st.session_state.chat_history[-7:-1] if len(st.session_state.chat_history) > 1 else []
@@ -542,13 +542,11 @@ if prompt := st.chat_input("Ask a question..."):
                                     "role": "system", 
                                     "content": "Respond politely and briefly to the user's greeting, smalltalk, or acknowledgement. Do not make up facts or mention documentation."
                                 })
-                            elif system_instruction:
-                                messages_payload.append({"role": "system", "content": system_instruction})
                             else:
-                                messages_payload.append({"role": "system", "content": default_system_prompt})
-                                
-                            if context and not is_smalltalk:
-                                messages_payload.append({"role": "system", "content": f"Context information about {bot_info['name']}:\n{context}"})
+                                sys_content = system_instruction if system_instruction else default_system_prompt
+                                if context:
+                                    sys_content += f"\n\nContext information about {bot_info['name']}:\n{context}"
+                                messages_payload.append({"role": "system", "content": sys_content})
                             
                             # Load recent history
                             recent_history = st.session_state.chat_history[-7:-1] if len(st.session_state.chat_history) > 1 else []
