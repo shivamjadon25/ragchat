@@ -401,7 +401,8 @@ if prompt := st.chat_input("Ask a question..."):
             )
             
         # Determine provider
-        use_groq = any(kw in generation_model.lower() for kw in ["llama", "mixtral", "gemma2"]) or (groq_key and not gemini_key)
+        provider = bot_settings.get("provider", "gemini")
+        use_groq = (provider == "groq") or (groq_key and not gemini_key)
         
         try:
             full_response = ""
@@ -481,13 +482,13 @@ if prompt := st.chat_input("Ask a question..."):
                 try:
                     available_models = genai.list_models()
                     valid_gen_models = [m.name for m in available_models if 'generateContent' in m.supported_generation_methods]
-                    for m in ["models/gemini-2.5-flash", "models/gemini-2.5-flash-8b", "models/gemini-1.5-flash", "models/gemini-1.5-flash-8b", "models/gemini-1.5-pro"]:
+                    for m in ["models/gemini-2.5-flash", "models/gemini-2.5-flash-8b", "models/gemini-1.5-flash", "models/gemini-1.5-flash-8b", "models/gemini-2.5-pro"]:
                         if m in valid_gen_models and m not in models_to_try:
                             models_to_try.append(m)
                 except:
                     pass
                     
-                for fallback_m in ["models/gemini-2.5-flash", "models/gemini-2.5-flash-8b", "models/gemini-1.5-flash", "models/gemini-1.5-flash-8b", "models/gemini-1.5-pro"]:
+                for fallback_m in ["models/gemini-2.5-flash", "models/gemini-2.5-flash-8b", "models/gemini-1.5-flash", "models/gemini-1.5-flash-8b", "models/gemini-2.5-pro"]:
                     if fallback_m not in models_to_try:
                         models_to_try.append(fallback_m)
                         

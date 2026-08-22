@@ -764,49 +764,72 @@ elif menu == "⚙️ GenAI & Model Settings":
         
         st.markdown("### 🛠️ Model Parameters")
         
-        with st.form("model_settings_form"):
-            # Select Model
+        # Select Provider
+        current_provider = bot_settings.get("provider", "gemini")
+        provider_options = ["gemini", "groq"]
+        provider_labels = {"gemini": "Google Gemini (RAG Embeddings)", "groq": "Groq (High-Speed Free Tier)"}
+        
+        provider_selection = st.selectbox(
+            "LLM Provider:",
+            provider_options,
+            index=provider_options.index(current_provider) if current_provider in provider_options else 0,
+            format_func=lambda x: provider_labels[x]
+        )
+        
+        # Select Model based on Provider
+        if provider_selection == "gemini":
             model_options = [
                 "models/gemini-2.5-flash", 
                 "models/gemini-3.5-flash", 
-                "models/gemini-2.5-pro",
+                "models/gemini-2.5-pro"
+            ]
+            current_model = bot_settings.get("model_name", "models/gemini-2.5-flash")
+        else:
+            model_options = [
                 "llama-3.3-70b-versatile",
                 "llama-3.1-8b-instant",
                 "gemma2-9b-it",
                 "mixtral-8x7b-32768"
             ]
-            current_model = bot_settings.get("model_name", "models/gemini-2.5-flash")
-            if current_model not in model_options:
-                model_options.append(current_model)
-            model_selection = st.selectbox("LLM Model Name:", model_options, index=model_options.index(current_model))
+            current_model = bot_settings.get("model_name", "llama-3.3-70b-versatile")
             
-            if any(k in model_selection.lower() for k in ["llama", "mixtral", "gemma2"]):
-                st.info("⚡ Groq model selected. Ensure you provide your **Groq API Key** in the chatbot portal sidebar (gives you 14,400 free requests per day!).")
+        if current_model not in model_options:
+            model_options.append(current_model)
             
-            # Prompt configuration
-            default_prompt = (
-                f"You are a helpful customer support agent representing {selected_settings_bot}. "
-                "Your answers should be friendly, conversational, and direct. "
-                "Base your answer ONLY on the provided Context below. If the answer cannot be found in the context, "
-                "politely state that you do not have that information and suggest contacting human support. "
-                "Do not make up facts."
-            )
-            system_prompt = st.text_area("System Prompt (Persona Instructions):", value=bot_settings.get("system_prompt", default_prompt), height=150)
-            
-            # SLiders
-            temperature = st.slider("Temperature (Creativity):", min_value=0.0, max_value=2.0, value=float(bot_settings.get("temperature", 0.7)), step=0.1)
-            top_p = st.slider("Top-P (Nucleus Sampling):", min_value=0.0, max_value=1.0, value=float(bot_settings.get("top_p", 0.95)), step=0.05)
-            max_tokens = st.number_input("Max Output Tokens Limit:", min_value=1, max_value=8192, value=int(bot_settings.get("max_output_tokens", 1024)))
-            
-            save_submit = st.form_submit_button("💾 Save Configuration Settings", use_container_width=True, type="primary")
-            
-            if save_submit:
-                all_settings[selected_bot_id] = {
-                    "model_name": model_selection,
-                    "system_prompt": system_prompt,
-                    "temperature": temperature,
-                    "top_p": top_p,
-                    "max_output_tokens": max_tokens
-                }
-                save_bot_settings(all_settings)
-                st.success("Configuration successfully saved!")
+        model_selection = st.selectbox(
+            "LLM Model Name:", 
+            model_options, 
+            index=model_options.index(current_model)
+        )
+        
+        if provider_selection == "groq":
+            st.info("⚡ Groq model selected. Ensure you provide your **Groq API Key** in the chatbot portal sidebar (gives you 14,400 free requests per day!).")
+        
+        # Prompt configuration
+        default_prompt = (
+            f"You are a helpful customer support agent representing {selected_settings_bot}. "
+            "Your answers should be friendly, conversational, and direct. "
+            "Base your answer ONLY on the provided Context below. If the answer cannot be found in the context, "
+            "politely state that you do not have that information and suggest contacting human support. "
+            "Do not make up facts."
+        )
+        system_prompt = st.text_area("System Prompt (Persona Instructions):", value=bot_settings.get("system_prompt", default_prompt), height=150)
+        
+        # SLiders
+        temperature = st.slider("Temperature (Creativity):", min_value=0.0, max_value=2.0, value=float(bot_settings.get("temperature", 0.7)), step=0.1)
+        top_p = st.slider("Top-P (Nucleus Sampling):", min_value=0.0, max_value=1.0, value=float(bot_settings.get("top_p", 0.95)), step=0.05)
+        max_tokens = st.number_input("Max Output Tokens Limit:", min_value=1, max_value=8192, value=int(bot_settings.get("max_output_tokens", 1024)))
+        
+        save_submit = st.button("💾 Save Configuration Settings", use_container_width=True, type="primary")
+        
+        if save_submit:
+            all_settings[selected_bot_id] = {
+                "provider": provider_selection,
+                "model_name": model_selection,
+                "system_prompt": system_prompt,
+                "temperature": temperature,
+                "top_p": top_p,
+                "max_output_tokens": max_tokens
+            }
+            save_bot_settings(all_settings)
+            st.success("Configuration successfully saved!")
