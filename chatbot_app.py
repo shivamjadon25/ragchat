@@ -381,7 +381,8 @@ if prompt := st.chat_input("Ask a question..."):
         if is_smalltalk:
             full_prompt = (
                 f"Respond politely and briefly to the user's greeting, smalltalk, or acknowledgement. "
-                "Do not make up facts or mention documentation.\n\n"
+                "Do not make up facts or mention documentation. "
+                "Output ONLY the final response to the user. Do not include any internal thoughts, drafts, or reasoning.\n\n"
                 f"Previous Conversation:\n{history_str}\n"
                 f"User: {prompt}\n"
                 f"Answer: "
@@ -502,7 +503,7 @@ if prompt := st.chat_input("Ask a question..."):
                     try:
                         model = genai.GenerativeModel(
                             model_name=active_model_name,
-                            system_instruction=system_instruction if context else None
+                            system_instruction=system_instruction
                         )
                         
                         # Stream the response
