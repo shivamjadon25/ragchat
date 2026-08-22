@@ -230,9 +230,57 @@ if prompt := st.chat_input("Ask a question..."):
             except Exception as e:
                 pass
 
+            # Query Reformulation: Rephrase follow-up query to standalone query
+            standalone_query = prompt
+            if len(st.session_state.chat_history) > 1:
+                try:
+                    # Load model settings to use current model for rephrasing
+                    bot_settings = load_bot_settings(bot_id)
+                    generation_model = bot_settings.get("model_name", "models/gemini-2.5-flash")
+                    
+                    # Dynamic model fallback if default
+                    if generation_model in ["models/gemini-2.5-flash", "models/gemini-1.5-flash", "gemini-2.5-flash", "gemini-1.5-flash"]:
+                        try:
+                            models = genai.list_models()
+                            valid_models = [m.name for m in models if 'generateContent' in m.supported_generation_methods]
+                            for m in ["models/gemini-2.5-flash", "models/gemini-3.5-flash", "models/gemini-1.5-flash"]:
+                                if m in valid_models:
+                                    generation_model = m
+                                    break
+                            else:
+                                flash_models = [m for m in valid_models if "flash" in m]
+                                if flash_models:
+                                    generation_model = flash_models[0]
+                                elif valid_models:
+                                    generation_model = valid_models[0]
+                        except:
+                            pass
+
+                    reformulate_model = genai.GenerativeModel(model_name=generation_model)
+                    history_summary = ""
+                    # Grab up to the last 5 turns of conversation context
+                    recent_turns = st.session_state.chat_history[-5:-1]
+                    for msg in recent_turns:
+                        role_name = "User" if msg["role"] == "user" else "Assistant"
+                        history_summary += f"{role_name}: {msg['content']}\n"
+                    
+                    reformulate_prompt = (
+                        "Given the following conversation history and a follow-up question, "
+                        "rephrase the follow-up question to be a standalone search query (do not answer the question, just rephrase it). "
+                        "If the question is already standalone, return it exactly as is.\n\n"
+                        f"Conversation History:\n{history_summary}\n"
+                        f"Follow-up Question: {prompt}\n"
+                        "Standalone Query:"
+                    )
+                    
+                    rewrite_res = reformulate_model.generate_content(reformulate_prompt)
+                    standalone_query = rewrite_res.text.strip()
+                except Exception as e:
+                    standalone_query = prompt
+
             emb_res = genai.embed_content(
                 model=embedding_model,
-                content=prompt,
+                content=standalone_query,
                 task_type="retrieval_query"
             )
             query_embedding = emb_res['embedding'][:768]
@@ -303,9 +351,17 @@ if prompt := st.chat_input("Ask a question..."):
             "max_output_tokens": int(bot_settings.get("max_output_tokens", 1024))
         }
         
+        # Construct history string to provide full context to generation LLM
+        history_str = ""
+        recent_history = st.session_state.chat_history[-7:-1] if len(st.session_state.chat_history) > 1 else []
+        for msg in recent_history:
+            role_name = "User" if msg["role"] == "user" else "Assistant"
+            history_str += f"{role_name}: {msg['content']}\n"
+            
         if context:
             full_prompt = (
                 f"Context about {bot_info['name']}:\n{context}\n\n"
+                f"Previous Conversation:\n{history_str}\n"
                 f"User Question: {prompt}\n"
                 f"Answer: "
             )
@@ -313,6 +369,7 @@ if prompt := st.chat_input("Ask a question..."):
             full_prompt = (
                 f"Note: No documents or website pages have been ingested for this bot yet. "
                 "Politely inform the user that you are still being configured and do not have access to any knowledge yet.\n"
+                f"Previous Conversation:\n{history_str}\n"
                 f"User Question: {prompt}\n"
                 f"Answer: "
             )
