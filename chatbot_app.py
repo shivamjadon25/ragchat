@@ -180,19 +180,23 @@ st.markdown("""
     }
 
     /* Absolute position the macOS window controls in the top-right corner of the widget */
-    div[data-testid="stVerticalBlockBorderWrapper"]:has(.chat-widget-marker) .min-btn-wrapper {
+    div[data-testid="stVerticalBlockBorderWrapper"]:has(.chat-widget-marker) div[data-testid="stVerticalBlock"] > div[data-testid="element-container"]:nth-child(2) {
         position: absolute !important;
         top: 14px !important;
         right: 44px !important;
+        width: 18px !important;
+        height: 18px !important;
         z-index: 100001 !important;
         margin: 0 !important;
         padding: 0 !important;
     }
 
-    div[data-testid="stVerticalBlockBorderWrapper"]:has(.chat-widget-marker) .close-btn-wrapper {
+    div[data-testid="stVerticalBlockBorderWrapper"]:has(.chat-widget-marker) div[data-testid="stVerticalBlock"] > div[data-testid="element-container"]:nth-child(3) {
         position: absolute !important;
         top: 14px !important;
         right: 18px !important;
+        width: 18px !important;
+        height: 18px !important;
         z-index: 100001 !important;
         margin: 0 !important;
         padding: 0 !important;
@@ -243,7 +247,9 @@ st.markdown("""
     }
 
     /* macOS style window control header buttons (compact 18px circular dots) */
-    .min-btn-wrapper button {
+    /* Target buttons inside elements by index to turn them into colored dots */
+    div[data-testid="stVerticalBlockBorderWrapper"]:has(.chat-widget-marker) div[data-testid="stVerticalBlock"] > div:nth-child(2) button,
+    div[data-testid="stVerticalBlockBorderWrapper"]:has(.chat-widget-marker) div[data-testid="stVerticalBlock"] > div:nth-child(3) button {
         border-radius: 50% !important;
         width: 18px !important;
         height: 18px !important;
@@ -252,7 +258,6 @@ st.markdown("""
         max-width: 18px !important;
         max-height: 18px !important;
         padding: 0 !important;
-        background-color: #ffbd2e !important; /* macOS yellow */
         border: none !important;
         font-size: 8px !important;
         font-weight: bold !important;
@@ -263,33 +268,20 @@ st.markdown("""
         justify-content: center !important;
         transition: opacity 0.2s !important;
         line-height: 1 !important;
-    }
-    .min-btn-wrapper button:hover {
-        opacity: 0.8 !important;
     }
 
-    .close-btn-wrapper button {
-        border-radius: 50% !important;
-        width: 18px !important;
-        height: 18px !important;
-        min-width: 18px !important;
-        min-height: 18px !important;
-        max-width: 18px !important;
-        max-height: 18px !important;
-        padding: 0 !important;
-        background-color: #ff5f56 !important; /* macOS red */
-        border: none !important;
-        font-size: 8px !important;
-        font-weight: bold !important;
-        color: rgba(0, 0, 0, 0.6) !important;
-        cursor: pointer;
-        display: flex !important;
-        align-items: center !important;
-        justify-content: center !important;
-        transition: opacity 0.2s !important;
-        line-height: 1 !important;
+    /* Yellow background for Minimize */
+    div[data-testid="stVerticalBlockBorderWrapper"]:has(.chat-widget-marker) div[data-testid="stVerticalBlock"] > div:nth-child(2) button {
+        background-color: #ffbd2e !important;
     }
-    .close-btn-wrapper button:hover {
+
+    /* Red background for Close */
+    div[data-testid="stVerticalBlockBorderWrapper"]:has(.chat-widget-marker) div[data-testid="stVerticalBlock"] > div:nth-child(3) button {
+        background-color: #ff5f56 !important;
+    }
+
+    div[data-testid="stVerticalBlockBorderWrapper"]:has(.chat-widget-marker) div[data-testid="stVerticalBlock"] > div:nth-child(2) button:hover,
+    div[data-testid="stVerticalBlockBorderWrapper"]:has(.chat-widget-marker) div[data-testid="stVerticalBlock"] > div:nth-child(3) button:hover {
         opacity: 0.8 !important;
     }
 
@@ -936,15 +928,14 @@ if st.session_state.chat_open:
     st.html(
         """
         <iframe src="about:blank" style="display:none;" onload="
-            setTimeout(() => {
-                const widget = window.parent.document.querySelector('div[data-testid*=stVerticalBlockBorderWrapper]:has(.chat-widget-marker)');
-                if (widget) {
-                    const scrollable = widget.querySelector('div[style*=\\'overflow\\']');
-                    if (scrollable) {
-                        scrollable.scrollTop = scrollable.scrollHeight;
-                    }
-                }
-            }, 50);
+            const scroll = () => {
+                const scrollables = window.parent.document.querySelectorAll('div[data-testid=\"stChatMessageContainer\"], [data-testid=\"stElementContainer\"] div[style*=\"overflow\"]');
+                scrollables.forEach(el => {
+                    el.scrollTop = el.scrollHeight;
+                });
+            };
+            setTimeout(scroll, 50);
+            setTimeout(scroll, 250);
         "></iframe>
         """
     )
