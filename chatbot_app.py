@@ -6,7 +6,7 @@ import time
 from urllib.parse import urlparse
 from supabase import create_client, Client
 
-# Set page configuration to standard centered layout
+# Set page configuration to standard centered layout for background
 st.set_page_config(
     page_title="Customer Chatbot Support",
     page_icon="💬",
@@ -140,6 +140,7 @@ elapsed_inactivity = current_time - st.session_state.last_activity
 if elapsed_inactivity > TIMEOUT_SECONDS:
     st.session_state.chat_history = []
     st.session_state.conversation_id = None
+    st.session_state.chat_open = False
     try:
         conv_res = supabase.table("conversations").insert({"bot_id": bot_id}).execute()
         st.session_state.conversation_id = conv_res.data[0]["id"]
@@ -155,483 +156,738 @@ if not st.session_state.chat_history:
     welcome_text = f"Hello! Welcome to {bot_info['name']} support. How can I help you today?"
     st.session_state.chat_history.append({"role": "assistant", "content": welcome_text})
 
-# ----------------- DISPLAY CHAT -----------------
-st.title(f"💬 Chat with {bot_info['name']}")
-if bot_info['website_url']:
-    st.caption(f"Support agent for: [{bot_info['website_url']}]({bot_info['website_url']})")
-else:
-    st.caption("Custom Support Agent")
-
-# Show chat history
-for msg in st.session_state.chat_history:
-    with st.chat_message(msg["role"]):
-        st.markdown(msg["content"])
-        if "sources" in msg and msg["sources"]:
-            with st.expander("🔍 View Sources"):
-                for src_url, similarity in msg["sources"]:
-                    st.markdown(f"- **[Link]({src_url})** (Relevance: {similarity:.2f})")
-
-# User Input
-if prompt := st.chat_input("Ask a question..."):
-    # Refresh last activity time
-    st.session_state.last_activity = time.time()
-    
-    # Display user message
-    with st.chat_message("user"):
-        st.markdown(prompt)
-    st.session_state.chat_history.append({"role": "user", "content": prompt})
-    
-    # Save User message to Database
-    try:
-        supabase.table("messages").insert({
-            "conversation_id": st.session_state.conversation_id,
-            "role": "user",
-            "content": prompt
-        }).execute()
-    except Exception as e:
-        pass
-        
-    # Check for goodbye
-    clean_prompt = "".join(c for c in prompt.lower() if c.isalnum() or c.isspace()).strip()
-    if clean_prompt in ["bye", "goodbye", "exit", "quit", "bye bye"]:
-        farewell = f"Goodbye! Thank you for contacting {bot_info['name']} support. Starting a new chat session..."
-        with st.chat_message("assistant"):
-            st.markdown(farewell)
-        st.session_state.chat_history.append({"role": "assistant", "content": farewell})
-        
-        try:
-            supabase.table("messages").insert({
-                "conversation_id": st.session_state.conversation_id,
-                "role": "assistant",
-                "content": farewell
-            }).execute()
-        except:
-            pass
-            
-        time.sleep(2.0)
-        st.session_state.chat_history = []
-        st.session_state.conversation_id = None
-        st.session_state.last_activity = time.time()
-        st.rerun()
-
-    # 1. RAG Search (Retrieve matching content from Supabase vector index)
-    context = ""
-    sources = []
-    
-    # Check if query is simple smalltalk, greeting, or acknowledgement
-    clean_query = "".join(c for c in prompt.lower() if c.isalnum() or c.isspace()).strip()
-    smalltalk_phrases = {
-        "hi", "hello", "hey", "howdy", "greetings", "good morning", "good afternoon", "good evening", 
-        "how are you", "hows it going", "how are you doing", "yo", "sup", "whats up",
-        "thanks", "thank you", "thank you so much", "perfect", "ok", "okay", "awesome", "cool", "great"
+# Inject Custom CSS for beautiful minimal floating widget
+st.markdown("""
+<style>
+    /* Float the bordered container containing our class marker */
+    div[data-testid="stVerticalBlockBorderWrapper"]:has(.chat-widget-marker) {
+        position: fixed !important;
+        bottom: 110px !important;
+        right: 30px !important;
+        width: 380px !important;
+        height: 520px !important;
+        z-index: 99999 !important;
+        box-shadow: 0 8px 30px rgba(0, 0, 0, 0.1) !important;
+        border-radius: 16px !important;
+        background-color: var(--secondary-background-color) !important;
+        border: 1px solid rgba(128, 128, 128, 0.15) !important;
+        padding: 12px !important;
     }
-    is_smalltalk = clean_query in smalltalk_phrases
+
+    /* Tighten vertical layout spacing inside the widget */
+    div[data-testid="stVerticalBlockBorderWrapper"]:has(.chat-widget-marker) [data-testid="stVerticalBlock"] {
+        gap: 6px !important;
+    }
     
-    if not is_smalltalk:
-        with st.spinner("Searching knowledge base..."):
-            try:
-                # Generate Embedding for prompt
-                genai.configure(api_key=gemini_key)
-                
-                # Dynamically resolve embedding model name from the user's active API
-                embedding_model = "models/text-embedding-004"
-                try:
-                    models = genai.list_models()
-                    valid_models = [m.name for m in models if 'embedContent' in m.supported_generation_methods]
-                    for m in ["models/text-embedding-004", "models/embedding-001"]:
-                        if m in valid_models:
-                            embedding_model = m
-                            break
-                    else:
-                        if valid_models:
-                            embedding_model = valid_models[0]
-                except Exception as e:
-                    pass
+    /* Styling for the floating FAB button */
+    .floating-btn-container {
+        position: fixed;
+        bottom: 30px;
+        right: 30px;
+        z-index: 99999;
+    }
+    .floating-btn-container button {
+        background-color: #007bff !important;
+        color: white !important;
+        border-radius: 50% !important;
+        width: 60px !important;
+        height: 60px !important;
+        font-size: 28px !important;
+        box-shadow: 0 4px 12px rgba(0, 123, 255, 0.3) !important;
+        border: none !important;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        transition: transform 0.2s ease !important;
+    }
+    .floating-btn-container button:hover {
+        transform: scale(1.05) !important;
+        background-color: #0069d9 !important;
+    }
 
-                # Query Reformulation: Rephrase follow-up query to standalone query
-                standalone_query = prompt
-                if len(st.session_state.chat_history) > 1:
-                    try:
-                        # Load model settings to use current model for rephrasing
-                        bot_settings = load_bot_settings(bot_id)
-                        generation_model = bot_settings.get("model_name", "models/gemini-2.5-flash")
-                        
-                        # Dynamic model fallback if default
-                        if generation_model in ["models/gemini-2.5-flash", "models/gemini-1.5-flash", "gemini-2.5-flash", "gemini-1.5-flash"]:
-                            try:
-                                models = genai.list_models()
-                                valid_models = [m.name for m in models if 'generateContent' in m.supported_generation_methods]
-                                for m in ["models/gemini-2.5-flash", "models/gemini-3.5-flash", "models/gemini-1.5-flash"]:
-                                    if m in valid_models:
-                                        generation_model = m
-                                        break
-                                else:
-                                    flash_models = [m for m in valid_models if "flash" in m]
-                                    if flash_models:
-                                        generation_model = flash_models[0]
-                                    elif valid_models:
-                                        generation_model = valid_models[0]
-                            except:
-                                pass
+    /* Style header titles to have zero margin */
+    .chat-header-title {
+        margin: 0 !important;
+        padding: 0 !important;
+        font-size: 1.05rem !important;
+        font-weight: 700 !important;
+        line-height: 1.2 !important;
+        color: var(--text-color);
+    }
+    .chat-header-status {
+        margin: 0 !important;
+        padding: 0 !important;
+        font-size: 0.72rem !important;
+        font-weight: 600 !important;
+        color: #28a745 !important;
+    }
 
-                        reformulate_model = genai.GenerativeModel(model_name=generation_model)
-                        history_summary = ""
-                        # Grab up to the last 5 turns of conversation context
-                        recent_turns = st.session_state.chat_history[-5:-1]
-                        for msg in recent_turns:
-                            role_name = "User" if msg["role"] == "user" else "Assistant"
-                            history_summary += f"{role_name}: {msg['content']}\n"
-                        
-                        reformulate_prompt = (
-                            "Given the following conversation history and a follow-up question, "
-                            "rephrase the follow-up question to be a standalone search query (do not answer the question, just rephrase it). "
-                            "If the question is already standalone, return it exactly as is.\n\n"
-                            f"Conversation History:\n{history_summary}\n"
-                            f"Follow-up Question: {prompt}\n"
-                            "Standalone Query:"
-                        )
-                        
-                        rewrite_res = reformulate_model.generate_content(reformulate_prompt)
-                        standalone_query = rewrite_res.text.strip()
-                    except Exception as e:
-                        standalone_query = prompt
+    /* macOS style window control header buttons (compact 20px) */
+    .min-btn-wrapper button {
+        border-radius: 50% !important;
+        width: 20px !important;
+        height: 20px !important;
+        min-height: unset !important;
+        padding: 0 !important;
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        background-color: rgba(128, 128, 128, 0.12) !important;
+        border: none !important;
+        font-size: 8px !important;
+        font-weight: bold !important;
+        color: var(--text-color) !important;
+        margin-top: 10px !important;
+        transition: background-color 0.2s !important;
+    }
+    .min-btn-wrapper button:hover {
+        background-color: rgba(128, 128, 128, 0.25) !important;
+    }
 
-                emb_res = genai.embed_content(
-                    model=embedding_model,
-                    content=standalone_query,
-                    task_type="retrieval_query"
-                )
-                query_embedding = emb_res['embedding'][:768]
-                
-                # Execute pgvector RPC search in Supabase
-                rpc_res = supabase.rpc("match_documents", {
-                    "query_embedding": query_embedding,
-                    "match_threshold": 0.25,
-                    "match_count": 4,
-                    "filter_bot_id": bot_id
-                }).execute()
-                
-                matches = rpc_res.data or []
-                
-                context_parts = []
-                for match in matches:
-                    context_parts.append(f"Source URL: {match['url']}\nContent:\n{match['content']}\n---\n")
-                    if (match['url'], match['similarity']) not in sources:
-                        sources.append((match['url'], match['similarity']))
-                
-                context = "\n".join(context_parts)
-            except Exception as e:
-                st.error(f"Search retrieval error: {e}")
-            
-    # 2. Generation using Gemini
-    with st.chat_message("assistant"):
-        message_placeholder = st.empty()
-        
-        # Load settings
-        bot_settings = load_bot_settings(bot_id)
-        
-        # Select base model
-        generation_model = bot_settings.get("model_name", "models/gemini-2.5-flash")
-        
-        # Dynamic model fallback if default
-        if generation_model in ["models/gemini-2.5-flash", "models/gemini-1.5-flash", "gemini-2.5-flash", "gemini-1.5-flash"]:
-            try:
-                models = genai.list_models()
-                valid_models = [m.name for m in models if 'generateContent' in m.supported_generation_methods]
-                for m in ["models/gemini-2.5-flash", "models/gemini-3.5-flash", "models/gemini-1.5-flash"]:
-                    if m in valid_models:
-                        generation_model = m
-                        break
-                else:
-                    flash_models = [m for m in valid_models if "flash" in m]
-                    if flash_models:
-                        generation_model = flash_models[0]
-                    elif valid_models:
-                        generation_model = valid_models[0]
-            except Exception as e:
-                pass
-                
-        # System instruction fallback
-        default_system_prompt = (
-            f"You are a helpful customer support agent representing {bot_info['name']}. "
-            "Your answers should be friendly, conversational, and direct. "
-            "Base your answer ONLY on the provided Context below. If the answer cannot be found in the context, "
-            "politely state that you do not have that information and suggest contacting human support. "
-            "Do not make up facts. "
-            "IMPORTANT: Output ONLY the final response to the user. Do not include any chain of thought, reasoning, "
-            "notes, drafts, self-corrections, or internal explanations. Start your response directly."
+    .close-btn-wrapper button {
+        border-radius: 50% !important;
+        width: 20px !important;
+        height: 20px !important;
+        min-height: unset !important;
+        padding: 0 !important;
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        background-color: rgba(220, 53, 69, 0.12) !important;
+        border: none !important;
+        font-size: 8px !important;
+        font-weight: bold !important;
+        color: #dc3545 !important;
+        margin-top: 10px !important;
+        transition: background-color 0.2s !important;
+    }
+    .close-btn-wrapper button:hover {
+        background-color: rgba(220, 53, 69, 0.25) !important;
+    }
+
+    /* Style starter pill buttons */
+    .starter-btn button {
+        border-radius: 18px !important;
+        border: 1px solid rgba(128, 128, 128, 0.15) !important;
+        background-color: var(--background-color) !important;
+        color: var(--text-color) !important;
+        padding: 5px 12px !important;
+        font-size: 0.8rem !important;
+        font-weight: 500 !important;
+        transition: all 0.2s ease !important;
+        text-align: left !important;
+        margin-bottom: 2px !important;
+    }
+    .starter-btn button:hover {
+        border-color: #007bff !important;
+        color: #007bff !important;
+        background-color: rgba(0, 123, 255, 0.05) !important;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# Helper function to render self-contained differentiable chat bubbles natively
+def render_custom_bubble(role, content, sources=None):
+    if role == "user":
+        st.html(
+            f"""
+            <div style='display: flex; justify-content: flex-end; margin-bottom: 8px;'>
+                <div style='background-color: #007bff; color: white; padding: 10px 14px; border-radius: 14px 14px 0px 14px; max-width: 85%; font-size: 0.9rem; line-height: 1.45;'>
+                    {content}
+                </div>
+            </div>
+            """
         )
-        system_instruction = bot_settings.get("system_prompt")
-        if not system_instruction:
-            system_instruction = default_system_prompt
+    else:
+        sources_html = ""
+        if sources:
+            sources_html = "<div style='display:flex; flex-wrap:wrap; gap:6px; margin-top:8px;'>"
+            for src_url, similarity in sources:
+                domain = urlparse(src_url).netloc or "Documentation"
+                sources_html += f"<a href='{src_url}' target='_blank' style='text-decoration:none; color:#0056b3; background-color:rgba(0,123,255,0.04); padding:2px 6px; border-radius:6px; font-size:0.68rem;'>🔗 {domain}</a>"
+            sources_html += "</div>"
             
-        generation_config = {
-            "temperature": float(bot_settings.get("temperature", 0.7)),
-            "top_p": float(bot_settings.get("top_p", 0.95)),
-            "max_output_tokens": int(bot_settings.get("max_output_tokens", 1024))
-        }
+        st.html(
+            f"""
+            <div style='display: flex; justify-content: flex-start; margin-bottom: 8px;'>
+                <div style='background-color: var(--secondary-background-color); color: var(--text-color); border: 1px solid rgba(128,128,128,0.14); padding: 10px 14px; border-radius: 14px 14px 14px 0px; max-width: 85%; font-size: 0.9rem; line-height: 1.45;'>
+                    <div>{content}</div>
+                    {sources_html}
+                </div>
+            </div>
+            """
+        )
+
+# Initialize Open State
+if "chat_open" not in st.session_state:
+    st.session_state.chat_open = False
+
+# Render Website Layout (Always centered in background, no wide stretching)
+st.markdown(f"<h1 style='font-size:2.4rem; font-weight:700; margin-bottom:0;'>🏢 {bot_info['name']}</h1>", unsafe_allow_html=True)
+if bot_info['website_url']:
+    st.caption(f"Official Portal: [{bot_info['website_url']}]({bot_info['website_url']})")
+st.markdown("---")
+st.write("Welcome to our simple web portal. Feel free to browse around or activate the support agent in the bottom right corner.")
+
+# Render Chat Widget Window (As Floating Overlay)
+if st.session_state.chat_open:
+    with st.container(border=True):
+        st.markdown('<div class="chat-widget-marker"></div>', unsafe_allow_html=True)
         
-        # Construct history string to provide full context to generation LLM
-        history_str = ""
-        recent_history = st.session_state.chat_history[-7:-1] if len(st.session_state.chat_history) > 1 else []
-        for msg in recent_history:
-            role_name = "User" if msg["role"] == "user" else "Assistant"
-            history_str += f"{role_name}: {msg['content']}\n"
-            
-        if is_smalltalk:
-            full_prompt = (
-                f"Respond politely and briefly to the user's greeting, smalltalk, or acknowledgement. "
-                "Do not make up facts or mention documentation. "
-                "Output ONLY the final response to the user. Do not include any internal thoughts, drafts, or reasoning.\n\n"
-                f"Previous Conversation:\n{history_str}\n"
-                f"User: {prompt}\n"
-                f"Answer: "
+        # Widget Header Row
+        hdr_c1, hdr_c2, hdr_c3 = st.columns([8, 1, 1])
+        with hdr_c1:
+            st.html(
+                f"""
+                <div style='margin-bottom: 0;'>
+                    <div class='chat-header-title'>🤖 {bot_info['name']}</div>
+                    <div class='chat-header-status'>● Online</div>
+                </div>
+                """
             )
-        elif context:
-            full_prompt = (
-                f"Context about {bot_info['name']}:\n{context}\n\n"
-                f"Previous Conversation:\n{history_str}\n"
-                f"User Question: {prompt}\n"
-                f"Answer: "
-            )
-        else:
-            full_prompt = (
-                f"Note: No documents or website pages have been ingested for this bot yet. "
-                "Politely inform the user that you are still being configured and do not have access to any knowledge yet.\n"
-                f"Previous Conversation:\n{history_str}\n"
-                f"User Question: {prompt}\n"
-                f"Answer: "
-            )
-            
-        # Determine provider
-        provider = bot_settings.get("provider", "gemini")
-        use_groq = (provider == "groq") or (groq_key and not gemini_key)
-        
-        try:
-            full_response = ""
-            if use_groq:
-                # Map default Groq model if the model doesn't match Groq names
-                groq_model = generation_model
-                if not any(kw in groq_model.lower() for kw in ["llama", "mixtral", "gemma"]):
-                    groq_model = "llama-3.3-70b-versatile"
-                    
-                import requests
-                headers = {
-                    "Authorization": f"Bearer {groq_key}",
-                    "Content-Type": "application/json"
-                }
-                
-                # Format messages payload
-                messages_payload = []
-                if is_smalltalk:
-                    messages_payload.append({
-                        "role": "system", 
-                        "content": "Respond politely and briefly to the user's greeting, smalltalk, or acknowledgement. Do not make up facts or mention documentation."
-                    })
-                else:
-                    sys_content = system_instruction if system_instruction else default_system_prompt
-                    if context:
-                        sys_content += f"\n\nContext information about {bot_info['name']}:\n{context}"
-                    messages_payload.append({"role": "system", "content": sys_content})
-                
-                # Load recent history
-                recent_history = st.session_state.chat_history[-7:-1] if len(st.session_state.chat_history) > 1 else []
-                for msg in recent_history:
-                    role_type = msg["role"]
-                    messages_payload.append({"role": role_type, "content": msg["content"]})
-                    
-                messages_payload.append({"role": "user", "content": prompt})
-                
-                payload = {
-                    "model": groq_model,
-                    "messages": messages_payload,
-                    "temperature": float(bot_settings.get("temperature", 0.7)),
-                    "max_tokens": int(bot_settings.get("max_output_tokens", 1024)),
-                    "top_p": float(bot_settings.get("top_p", 0.95)),
-                    "stream": True
-                }
-                
-                response = requests.post(
-                    "https://api.groq.com/openai/v1/chat/completions",
-                    headers=headers,
-                    json=payload,
-                    stream=True
-                )
-                
-                if response.status_code != 200:
-                    raise Exception(f"Groq API returned status code {response.status_code}: {response.text}")
-                
-                # Stream parsing
-                for line in response.iter_lines():
-                    if line:
-                        decoded_line = line.decode('utf-8')
-                        if decoded_line.startswith("data: "):
-                            data_str = decoded_line[6:].strip()
-                            if data_str == "[DONE]":
-                                break
-                            try:
-                                data_json = json.loads(data_str)
-                                delta = data_json["choices"][0]["delta"].get("content", "")
-                                full_response += delta
-                                message_placeholder.markdown(full_response + "▌")
-                            except:
-                                pass
-                message_placeholder.markdown(full_response)
-            else:
-                # Compile fallback list of models to try in case of 429 quota exceed
-                models_to_try = [generation_model]
+        with hdr_c2:
+            st.markdown('<div class="min-btn-wrapper">', unsafe_allow_html=True)
+            if st.button("─", key="minimize_chat_widget", help="Minimize"):
+                st.session_state.chat_open = False
+                st.rerun()
+            st.markdown('</div>', unsafe_allow_html=True)
+        with hdr_c3:
+            st.markdown('<div class="close-btn-wrapper">', unsafe_allow_html=True)
+            if st.button("✕", key="close_chat_session", help="Close Session"):
+                st.session_state.chat_history = []
+                st.session_state.conversation_id = None
+                st.session_state.chat_open = False
+                st.session_state.last_activity = time.time()
                 try:
-                    available_models = genai.list_models()
-                    valid_gen_models = [m.name for m in available_models if 'generateContent' in m.supported_generation_methods]
-                    for m in ["models/gemini-2.5-flash", "models/gemini-2.5-pro"]:
-                        if m in valid_gen_models and m not in models_to_try:
-                            models_to_try.append(m)
-                    for vm in valid_gen_models:
-                        if vm not in models_to_try:
-                            models_to_try.append(vm)
+                    conv_res = supabase.table("conversations").insert({"bot_id": bot_id}).execute()
+                    st.session_state.conversation_id = conv_res.data[0]["id"]
                 except:
                     pass
-                    
-                for fallback_m in ["models/gemini-2.5-flash", "models/gemini-2.5-pro"]:
-                    if fallback_m not in models_to_try:
-                        models_to_try.append(fallback_m)
-                        
-                success = False
-                errors = []
+                st.rerun()
+            st.markdown('</div>', unsafe_allow_html=True)
+            
+        st.html("<hr style='margin: 4px 0; border: 0; border-top: 1px solid rgba(128,128,128,0.15);'/>")
+        
+        # Scrollable chat logs container
+        chat_container = st.container(height=360)
+        with chat_container:
+            for msg in st.session_state.chat_history:
+                render_custom_bubble(msg["role"], msg["content"], msg.get("sources"))
+            
+            # Show starters inside container if history only contains welcome message
+            if len(st.session_state.chat_history) <= 1:
+                st.markdown("<p style='font-size:0.78rem; opacity:0.8; margin-top:10px; margin-bottom:4px; font-weight:600;'>💡 Suggestions:</p>", unsafe_allow_html=True)
+                starters = [
+                    "What services do you offer?",
+                    "How do I contact support?",
+                    "Summarize the main features."
+                ]
+                for idx, q in enumerate(starters):
+                    st.markdown('<div class="starter-btn">', unsafe_allow_html=True)
+                    if st.button(q, key=f"starter_q_{idx}", use_container_width=True):
+                        st.session_state.selected_prompt = q
+                        st.rerun()
+                    st.markdown('</div>', unsafe_allow_html=True)
+
+        # Handle Prompt Input
+        prompt = None
+        if "selected_prompt" in st.session_state and st.session_state.selected_prompt:
+            prompt = st.session_state.selected_prompt
+            st.session_state.selected_prompt = None
+        else:
+            prompt_input = st.chat_input("Ask a question...")
+            if prompt_input:
+                prompt = prompt_input
                 
-                for active_model_name in models_to_try:
+        if prompt:
+            # Update active timestamp
+            st.session_state.last_activity = time.time()
+            
+            # Display user message instantly in bubble
+            with chat_container:
+                render_custom_bubble("user", prompt)
+            st.session_state.chat_history.append({"role": "user", "content": prompt})
+            
+            # Save User message to Database
+            try:
+                supabase.table("messages").insert({
+                    "conversation_id": st.session_state.conversation_id,
+                    "role": "user",
+                    "content": prompt
+                }).execute()
+            except:
+                pass
+            
+            # Check for goodbye
+            clean_prompt = "".join(c for c in prompt.lower() if c.isalnum() or c.isspace()).strip()
+            if clean_prompt in ["bye", "goodbye", "exit", "quit", "bye bye"]:
+                farewell = f"Goodbye! Thank you for contacting {bot_info['name']} support."
+                with chat_container:
+                    render_custom_bubble("assistant", farewell)
+                st.session_state.chat_history.append({"role": "assistant", "content": farewell})
+                
+                try:
+                    supabase.table("messages").insert({
+                        "conversation_id": st.session_state.conversation_id,
+                        "role": "assistant",
+                        "content": farewell
+                    }).execute()
+                except:
+                    pass
+                
+                time.sleep(2.0)
+                st.session_state.chat_history = []
+                st.session_state.conversation_id = None
+                st.session_state.chat_open = False
+                st.session_state.last_activity = time.time()
+                st.rerun()
+
+            # 1. RAG Search (Retrieve matching content from Supabase vector index)
+            context = ""
+            sources = []
+            
+            # Check if query is simple smalltalk, greeting, or acknowledgement
+            clean_query = "".join(c for c in prompt.lower() if c.isalnum() or c.isspace()).strip()
+            smalltalk_phrases = {
+                "hi", "hello", "hey", "howdy", "greetings", "good morning", "good afternoon", "good evening", 
+                "how are you", "hows it going", "how are you doing", "yo", "sup", "whats up",
+                "thanks", "thank you", "thank you so much", "perfect", "ok", "okay", "awesome", "cool", "great"
+            }
+            is_smalltalk = clean_query in smalltalk_phrases
+            
+            if not is_smalltalk:
+                with st.spinner("Searching..."):
                     try:
-                        model = genai.GenerativeModel(
-                            model_name=active_model_name,
-                            system_instruction=system_instruction
-                        )
+                        # Generate Embedding for prompt
+                        genai.configure(api_key=gemini_key)
                         
-                        # Stream the response
-                        full_response = ""
-                        response_stream = model.generate_content(
-                            full_prompt, 
-                            generation_config=generation_config,
+                        # Dynamically resolve embedding model name from the user's active API
+                        embedding_model = "models/text-embedding-004"
+                        try:
+                            models = genai.list_models()
+                            valid_models = [m.name for m in models if 'embedContent' in m.supported_generation_methods]
+                            for m in ["models/text-embedding-004", "models/embedding-001"]:
+                                if m in valid_models:
+                                    embedding_model = m
+                                    break
+                            else:
+                                if valid_models:
+                                    embedding_model = valid_models[0]
+                        except Exception as e:
+                            pass
+
+                        # Query Reformulation: Rephrase follow-up query to standalone query
+                        standalone_query = prompt
+                        if len(st.session_state.chat_history) > 1:
+                            try:
+                                # Load model settings to use current model for rephrasing
+                                bot_settings = load_bot_settings(bot_id)
+                                generation_model = bot_settings.get("model_name", "models/gemini-2.5-flash")
+                                
+                                # Dynamic model fallback if default
+                                if generation_model in ["models/gemini-2.5-flash", "models/gemini-1.5-flash", "gemini-2.5-flash", "gemini-1.5-flash"]:
+                                    try:
+                                        models = genai.list_models()
+                                        valid_models = [m.name for m in models if 'generateContent' in m.supported_generation_methods]
+                                        for m in ["models/gemini-2.5-flash", "models/gemini-3.5-flash", "models/gemini-1.5-flash"]:
+                                            if m in valid_models:
+                                                generation_model = m
+                                                break
+                                        else:
+                                            flash_models = [m for m in valid_models if "flash" in m]
+                                            if flash_models:
+                                                generation_model = flash_models[0]
+                                            elif valid_models:
+                                                generation_model = valid_models[0]
+                                    except:
+                                        pass
+
+                                reformulate_model = genai.GenerativeModel(model_name=generation_model)
+                                history_summary = ""
+                                # Grab up to the last 5 turns of conversation context
+                                recent_turns = st.session_state.chat_history[-5:-1]
+                                for msg in recent_turns:
+                                    role_name = "User" if msg["role"] == "user" else "Assistant"
+                                    history_summary += f"{role_name}: {msg['content']}\n"
+                                
+                                reformulate_prompt = (
+                                    "Given the following conversation history and a follow-up question, "
+                                    "rephrase the follow-up question to be a standalone search query (do not answer the question, just rephrase it). "
+                                    "If the question is already standalone, return it exactly as is.\n\n"
+                                    f"Conversation History:\n{history_summary}\n"
+                                    f"Follow-up Question: {prompt}\n"
+                                    "Standalone Query:"
+                                )
+                                
+                                rewrite_res = reformulate_model.generate_content(reformulate_prompt)
+                                standalone_query = rewrite_res.text.strip()
+                            except Exception as e:
+                                standalone_query = prompt
+
+                        emb_res = genai.embed_content(
+                            model=embedding_model,
+                            content=standalone_query,
+                            task_type="retrieval_query"
+                        )
+                        query_embedding = emb_res['embedding'][:768]
+                        
+                        # Execute pgvector RPC search in Supabase
+                        rpc_res = supabase.rpc("match_documents", {
+                            "query_embedding": query_embedding,
+                            "match_threshold": 0.25,
+                            "match_count": 4,
+                            "filter_bot_id": bot_id
+                        }).execute()
+                        
+                        matches = rpc_res.data or []
+                        
+                        context_parts = []
+                        for match in matches:
+                            context_parts.append(f"Source URL: {match['url']}\nContent:\n{match['content']}\n---\n")
+                            if (match['url'], match['similarity']) not in sources:
+                                sources.append((match['url'], match['similarity']))
+                        
+                        context = "\n".join(context_parts)
+                    except Exception as e:
+                        st.error(f"Search retrieval error: {e}")
+            
+            # 2. Generation using Gemini
+            with chat_container:
+                message_placeholder = st.empty()
+                
+                # Load settings
+                bot_settings = load_bot_settings(bot_id)
+                
+                # Select base model
+                generation_model = bot_settings.get("model_name", "models/gemini-2.5-flash")
+                
+                # Dynamic model fallback if default
+                if generation_model in ["models/gemini-2.5-flash", "models/gemini-1.5-flash", "gemini-2.5-flash", "gemini-1.5-flash"]:
+                    try:
+                        models = genai.list_models()
+                        valid_models = [m.name for m in models if 'generateContent' in m.supported_generation_methods]
+                        for m in ["models/gemini-2.5-flash", "models/gemini-3.5-flash", "models/gemini-1.5-flash"]:
+                            if m in valid_models:
+                                            generation_model = m
+                                            break
+                        else:
+                            flash_models = [m for m in valid_models if "flash" in m]
+                            if flash_models:
+                                generation_model = flash_models[0]
+                            elif valid_models:
+                                generation_model = valid_models[0]
+                    except Exception as e:
+                        pass
+                        
+                # System instruction fallback
+                default_system_prompt = (
+                    f"You are a helpful customer support agent representing {bot_info['name']}. "
+                    "Your answers should be friendly, conversational, and direct. "
+                    "Base your answer ONLY on the provided Context below. If the answer cannot be found in the context, "
+                    "politely state that you do not have that information and suggest contacting human support. "
+                    "Do not make up facts. "
+                    "IMPORTANT: Output ONLY the final response to the user. Do not include any chain of thought, reasoning, "
+                    "notes, drafts, self-corrections, or internal explanations. Start your response directly."
+                )
+                system_instruction = bot_settings.get("system_prompt")
+                if not system_instruction:
+                    system_instruction = default_system_prompt
+                    
+                generation_config = {
+                    "temperature": float(bot_settings.get("temperature", 0.7)),
+                    "top_p": float(bot_settings.get("top_p", 0.95)),
+                    "max_output_tokens": int(bot_settings.get("max_output_tokens", 1024))
+                }
+                
+                # Construct history string to provide full context to generation LLM
+                history_str = ""
+                recent_history = st.session_state.chat_history[-7:-1] if len(st.session_state.chat_history) > 1 else []
+                for msg in recent_history:
+                    role_name = "User" if msg["role"] == "user" else "Assistant"
+                    history_str += f"{role_name}: {msg['content']}\n"
+                    
+                if is_smalltalk:
+                    full_prompt = (
+                        f"Respond politely and briefly to the user's greeting, smalltalk, or acknowledgement. "
+                        "Do not make up facts or mention documentation. "
+                        "Output ONLY the final response to the user. Do not include any internal thoughts, drafts, or reasoning.\n\n"
+                        f"Previous Conversation:\n{history_str}\n"
+                        f"User: {prompt}\n"
+                        f"Answer: "
+                    )
+                elif context:
+                    full_prompt = (
+                        f"Context about {bot_info['name']}:\n{context}\n\n"
+                        f"Previous Conversation:\n{history_str}\n"
+                        f"User Question: {prompt}\n"
+                        f"Answer: "
+                    )
+                else:
+                    full_prompt = (
+                        f"Note: No documents or website pages have been ingested for this bot yet. "
+                        "Politely inform the user that you are still being configured and do not have access to any knowledge yet.\n"
+                        f"Previous Conversation:\n{history_str}\n"
+                        f"User Question: {prompt}\n"
+                        f"Answer: "
+                    )
+                    
+                # Determine provider
+                provider = bot_settings.get("provider", "gemini")
+                use_groq = (provider == "groq") or (groq_key and not gemini_key)
+                
+                try:
+                    full_response = ""
+                    if use_groq:
+                        # Map default Groq model if the model doesn't match Groq names
+                        groq_model = generation_model
+                        if not any(kw in groq_model.lower() for kw in ["llama", "mixtral", "gemma"]):
+                            groq_model = "llama-3.3-70b-versatile"
+                            
+                        import requests
+                        headers = {
+                            "Authorization": f"Bearer {groq_key}",
+                            "Content-Type": "application/json"
+                        }
+                        
+                        # Format messages payload
+                        messages_payload = []
+                        if is_smalltalk:
+                            messages_payload.append({
+                                "role": "system", 
+                                "content": "Respond politely and briefly to the user's greeting, smalltalk, or acknowledgement. Do not make up facts or mention documentation."
+                            })
+                        else:
+                            sys_content = system_instruction if system_instruction else default_system_prompt
+                            if context:
+                                sys_content += f"\n\nContext information about {bot_info['name']}:\n{context}"
+                            messages_payload.append({"role": "system", "content": sys_content})
+                        
+                        # Load recent history
+                        recent_history = st.session_state.chat_history[-7:-1] if len(st.session_state.chat_history) > 1 else []
+                        for msg in recent_history:
+                            role_type = msg["role"]
+                            messages_payload.append({"role": role_type, "content": msg["content"]})
+                            
+                        messages_payload.append({"role": "user", "content": prompt})
+                        
+                        payload = {
+                            "model": groq_model,
+                            "messages": messages_payload,
+                            "temperature": float(bot_settings.get("temperature", 0.7)),
+                            "max_tokens": int(bot_settings.get("max_output_tokens", 1024)),
+                            "top_p": float(bot_settings.get("top_p", 0.95)),
+                            "stream": True
+                        }
+                        
+                        response = requests.post(
+                            "https://api.groq.com/openai/v1/chat/completions",
+                            headers=headers,
+                            json=payload,
                             stream=True
                         )
-                        for chunk in response_stream:
-                            full_response += chunk.text
-                            message_placeholder.markdown(full_response + "▌")
                         
-                        message_placeholder.markdown(full_response)
-                        success = True
-                        break
-                    except Exception as e:
-                        errors.append((active_model_name, e))
-                        # Continue loop to try the next model
-                        continue
+                        if response.status_code != 200:
+                            raise Exception(f"Groq API returned status code {response.status_code}: {response.text}")
                         
-                if not success:
-                    # Last resort: if Gemini fails but a Groq API key is provided, try Groq!
-                    if groq_key:
+                        # Stream parsing
+                        for line in response.iter_lines():
+                            if line:
+                                decoded_line = line.decode('utf-8')
+                                if decoded_line.startswith("data: "):
+                                    data_str = decoded_line[6:].strip()
+                                    if data_str == "[DONE]":
+                                        break
+                                    try:
+                                        data_json = json.loads(data_str)
+                                        delta = data_json["choices"][0]["delta"].get("content", "")
+                                        full_response += delta
+                                        message_placeholder.markdown(
+                                            f"<div style='background-color: var(--secondary-background-color); color: var(--text-color); border: 1px solid rgba(128,128,128,0.15); padding: 10px 14px; border-radius: 14px; display: inline-block; max-width: 85%; line-height: 1.4;'>{full_response}▌</div>",
+                                            unsafe_allow_html=True
+                                        )
+                                    except:
+                                        pass
+                        # Render final clean bubble
+                        message_placeholder.markdown(
+                            f"<div style='background-color: var(--secondary-background-color); color: var(--text-color); border: 1px solid rgba(128,128,128,0.15); padding: 10px 14px; border-radius: 14px; display: inline-block; max-width: 85%; line-height: 1.4;'>{full_response}</div>",
+                            unsafe_allow_html=True
+                        )
+                    else:
+                        # Compile fallback list of models to try in case of 429 quota exceed
+                        models_to_try = [generation_model]
                         try:
-                            st.info("ℹ️ Gemini quota limit reached. Safely falling back to Groq Llama model...")
-                            import requests
-                            headers = {
-                                "Authorization": f"Bearer {groq_key}",
-                                "Content-Type": "application/json"
-                            }
-                            
-                            # Format messages payload
-                            messages_payload = []
-                            if is_smalltalk:
-                                messages_payload.append({
-                                    "role": "system", 
-                                    "content": "Respond politely and briefly to the user's greeting, smalltalk, or acknowledgement. Do not make up facts or mention documentation."
-                                })
-                            else:
-                                sys_content = system_instruction if system_instruction else default_system_prompt
-                                if context:
-                                    sys_content += f"\n\nContext information about {bot_info['name']}:\n{context}"
-                                messages_payload.append({"role": "system", "content": sys_content})
-                            
-                            # Load recent history
-                            recent_history = st.session_state.chat_history[-7:-1] if len(st.session_state.chat_history) > 1 else []
-                            for msg in recent_history:
-                                role_type = msg["role"]
-                                messages_payload.append({"role": role_type, "content": msg["content"]})
-                                
-                            messages_payload.append({"role": "user", "content": prompt})
-                            
-                            payload = {
-                                "model": "llama-3.3-70b-versatile",
-                                "messages": messages_payload,
-                                "temperature": float(bot_settings.get("temperature", 0.7)),
-                                "max_tokens": int(bot_settings.get("max_output_tokens", 1024)),
-                                "top_p": float(bot_settings.get("top_p", 0.95)),
-                                "stream": True
-                            }
-                            
-                            response = requests.post(
-                                "https://api.groq.com/openai/v1/chat/completions",
-                                headers=headers,
-                                json=payload,
-                                stream=True
-                            )
-                            
-                            if response.status_code == 200:
-                                # Stream parsing
-                                for line in response.iter_lines():
-                                    if line:
-                                        decoded_line = line.decode('utf-8')
-                                        if decoded_line.startswith("data: "):
-                                            data_str = decoded_line[6:].strip()
-                                            if data_str == "[DONE]":
-                                                break
-                                            try:
-                                                data_json = json.loads(data_str)
-                                                delta = data_json["choices"][0]["delta"].get("content", "")
-                                                full_response += delta
-                                                message_placeholder.markdown(full_response + "▌")
-                                            except:
-                                                pass
-                                message_placeholder.markdown(full_response)
-                                success = True
+                            available_models = genai.list_models()
+                            valid_gen_models = [m.name for m in available_models if 'generateContent' in m.supported_generation_methods]
+                            for m in ["models/gemini-2.5-flash", "models/gemini-2.5-pro"]:
+                                if m in valid_gen_models and m not in models_to_try:
+                                    models_to_try.append(m)
+                            for vm in valid_gen_models:
+                                if vm not in models_to_try:
+                                    models_to_try.append(vm)
                         except:
                             pass
                             
-                if not success:
-                    # Find if any error was a 429 rate limit or quota exceed
-                    quota_error = None
-                    for m_name, err in errors:
-                        err_msg = str(err)
-                        if "429" in err_msg or "quota" in err_msg.lower():
-                            quota_error = err
-                            break
-                    if quota_error:
-                        raise quota_error
-                    elif errors:
-                        raise errors[0][1]
-                    else:
-                        raise Exception("All fallback generative models failed to respond.")
-            
-            # Show sources if RAG was active
-            if sources:
-                with st.expander("🔍 View Sources"):
-                    for src_url, similarity in sources:
-                        st.markdown(f"- **[Link]({src_url})** (Relevance: {similarity:.2f})")
+                        for fallback_m in ["models/gemini-2.5-flash", "models/gemini-2.5-pro"]:
+                            if fallback_m not in models_to_try:
+                                models_to_try.append(fallback_m)
+                                
+                        success = False
+                        errors = []
                         
-            # Save Assistant response to Session State
-            st.session_state.chat_history.append({
-                "role": "assistant",
-                "content": full_response,
-                "sources": sources
-            })
-            
-            # Save Assistant response to Database
-            supabase.table("messages").insert({
-                "conversation_id": st.session_state.conversation_id,
-                "role": "assistant",
-                "content": full_response
-            }).execute()
-            
-            # Update active timestamp
-            st.session_state.last_activity = time.time()
-            st.rerun()
-            
-        except Exception as e:
-            st.error(f"Error generating response: {e}")
+                        for active_model_name in models_to_try:
+                            try:
+                                model = genai.GenerativeModel(
+                                    model_name=active_model_name,
+                                    system_instruction=system_instruction
+                                )
+                                
+                                # Stream the response
+                                full_response = ""
+                                response_stream = model.generate_content(
+                                    full_prompt, 
+                                    generation_config=generation_config,
+                                    stream=True
+                                )
+                                for chunk in response_stream:
+                                    full_response += chunk.text
+                                    message_placeholder.markdown(
+                                        f"<div style='background-color: var(--secondary-background-color); color: var(--text-color); border: 1px solid rgba(128,128,128,0.15); padding: 10px 14px; border-radius: 14px; display: inline-block; max-width: 85%; line-height: 1.4;'>{full_response}▌</div>",
+                                        unsafe_allow_html=True
+                                    )
+                                
+                                message_placeholder.markdown(
+                                    f"<div style='background-color: var(--secondary-background-color); color: var(--text-color); border: 1px solid rgba(128,128,128,0.15); padding: 10px 14px; border-radius: 14px; display: inline-block; max-width: 85%; line-height: 1.4;'>{full_response}</div>",
+                                    unsafe_allow_html=True
+                                )
+                                success = True
+                                break
+                            except Exception as e:
+                                errors.append((active_model_name, e))
+                                # Continue loop to try the next model
+                                continue
+                                
+                        if not success:
+                            # Last resort: if Gemini fails but a Groq API key is provided, try Groq!
+                            if groq_key:
+                                try:
+                                    st.info("ℹ️ Gemini quota limit reached. Safely falling back to Groq Llama model...")
+                                    import requests
+                                    headers = {
+                                        "Authorization": f"Bearer {groq_key}",
+                                        "Content-Type": "application/json"
+                                    }
+                                    
+                                    # Format messages payload
+                                    messages_payload = []
+                                    if is_smalltalk:
+                                        messages_payload.append({
+                                            "role": "system", 
+                                            "content": "Respond politely and briefly to the user's greeting, smalltalk, or acknowledgement. Do not make up facts or mention documentation."
+                                        })
+                                    else:
+                                        sys_content = system_instruction if system_instruction else default_system_prompt
+                                        if context:
+                                            sys_content += f"\n\nContext information about {bot_info['name']}:\n{context}"
+                                        messages_payload.append({"role": "system", "content": sys_content})
+                                    
+                                    # Load recent history
+                                    recent_history = st.session_state.chat_history[-7:-1] if len(st.session_state.chat_history) > 1 else []
+                                    for msg in recent_history:
+                                        role_type = msg["role"]
+                                        messages_payload.append({"role": role_type, "content": msg["content"]})
+                                        
+                                    messages_payload.append({"role": "user", "content": prompt})
+                                    
+                                    payload = {
+                                        "model": "llama-3.3-70b-versatile",
+                                        "messages": messages_payload,
+                                        "temperature": float(bot_settings.get("temperature", 0.7)),
+                                        "max_tokens": int(bot_settings.get("max_output_tokens", 1024)),
+                                        "top_p": float(bot_settings.get("top_p", 0.95)),
+                                        "stream": True
+                                    }
+                                    
+                                    response = requests.post(
+                                        "https://api.groq.com/openai/v1/chat/completions",
+                                        headers=headers,
+                                        json=payload,
+                                        stream=True
+                                    )
+                                    
+                                    if response.status_code == 200:
+                                        # Stream parsing
+                                        for line in response.iter_lines():
+                                            if line:
+                                                decoded_line = line.decode('utf-8')
+                                                if decoded_line.startswith("data: "):
+                                                    data_str = decoded_line[6:].strip()
+                                                    if data_str == "[DONE]":
+                                                        break
+                                                    try:
+                                                        data_json = json.loads(data_str)
+                                                        delta = data_json["choices"][0]["delta"].get("content", "")
+                                                        full_response += delta
+                                                        message_placeholder.markdown(
+                                                            f"<div style='background-color: var(--secondary-background-color); color: var(--text-color); border: 1px solid rgba(128,128,128,0.15); padding: 10px 14px; border-radius: 14px; display: inline-block; max-width: 85%; line-height: 1.4;'>{full_response}▌</div>",
+                                                            unsafe_allow_html=True
+                                                        )
+                                                    except:
+                                                        pass
+                                        message_placeholder.markdown(
+                                            f"<div style='background-color: var(--secondary-background-color); color: var(--text-color); border: 1px solid rgba(128,128,128,0.15); padding: 10px 14px; border-radius: 14px; display: inline-block; max-width: 85%; line-height: 1.4;'>{full_response}</div>",
+                                            unsafe_allow_html=True
+                                        )
+                                        success = True
+                                except:
+                                    pass
+                                    
+                        if not success:
+                            # Find if any error was a 429 rate limit or quota exceed
+                            quota_error = None
+                            for m_name, err in errors:
+                                err_msg = str(err)
+                                if "429" in err_msg or "quota" in err_msg.lower():
+                                    quota_error = err
+                                    break
+                            if quota_error:
+                                raise quota_error
+                            elif errors:
+                                raise errors[0][1]
+                            else:
+                                raise Exception("All fallback generative models failed to respond.")
+                    
+                    # Show sources if RAG was active
+                    if sources:
+                        with st.expander("🔍 View Sources"):
+                            for src_url, similarity in sources:
+                                st.markdown(f"- **[Link]({src_url})** (Relevance: {similarity:.2f})")
+                                
+                    # Save Assistant response to Session State
+                    st.session_state.chat_history.append({
+                        "role": "assistant",
+                        "content": full_response,
+                        "sources": sources
+                    })
+                    
+                    # Save Assistant response to Database
+                    supabase.table("messages").insert({
+                        "conversation_id": st.session_state.conversation_id,
+                        "role": "assistant",
+                        "content": full_response
+                    }).execute()
+                    
+                    # Update active timestamp
+                    st.session_state.last_activity = time.time()
+                    st.rerun()
+                    
+                except Exception as e:
+                    st.error(f"Error generating response: {e}")
+
+# Render Floating Chatbot Logo Trigger Button on the right side
+if not st.session_state.chat_open:
+    st.markdown('<div class="floating-btn-container">', unsafe_allow_html=True)
+    if st.button("💬", key="fab_widget_trigger", help="Open Support Chat"):
+        st.session_state.chat_open = True
+        st.rerun()
+    st.markdown('</div>', unsafe_allow_html=True)
