@@ -6,11 +6,11 @@ import time
 from urllib.parse import urlparse
 from supabase import create_client, Client
 
-# Set page configuration to centered (prevents wide-stretching)
+# Set page configuration to wide layout
 st.set_page_config(
     page_title="Customer Chatbot Support",
     page_icon="💬",
-    layout="centered"
+    layout="wide"
 )
 
 # Settings File Path
@@ -148,15 +148,31 @@ if not st.session_state.chat_history:
     welcome_text = f"Hello! Welcome to {bot_info['name']} support. How can I help you today?"
     st.session_state.chat_history.append({"role": "assistant", "content": welcome_text})
 
-# Inject Custom CSS for beautiful minimal inline widget
+# Inject Custom CSS for beautiful minimal inline widget with universal sizing
 st.markdown("""
 <style>
-    /* Style the inline container wrapper */
+    /* Force the column containing our widget marker to be exactly 380px wide (Universal Chat Window Size) */
+    div[data-testid="column"]:has(.chat-widget-marker) {
+        width: 380px !important;
+        flex: 0 0 380px !important;
+        max-width: 380px !important;
+    }
+    
+    /* Make the other column expand to fill the rest of the layout */
+    div[data-testid="column"]:not(:has(.chat-widget-marker)) {
+        flex: 1 1 auto !important;
+    }
+
+    /* Style the bordered container inside the chat column */
     div[data-testid="stVerticalBlockBorderWrapper"]:has(.chat-widget-marker) {
-        border-radius: 12px !important;
+        border-radius: 14px !important;
         background-color: var(--secondary-background-color) !important;
-        border: 1px solid rgba(128, 128, 128, 0.15) !important;
-        padding: 12px !important;
+        border: 1px solid rgba(128, 128, 128, 0.16) !important;
+        padding: 16px !important;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05) !important;
+        height: 520px !important; /* Fixed universal height */
+        display: flex !important;
+        flex-direction: column !important;
     }
 
     /* Tighten vertical layout spacing inside the widget */
@@ -180,10 +196,10 @@ st.markdown("""
         font-size: 30px !important;
         box-shadow: 0 5px 15px rgba(0, 123, 255, 0.3) !important;
         border: none !important;
-        cursor: pointer !important;
-        display: flex !important;
-        align-items: center !important;
-        justify-content: center !important;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
         transition: transform 0.2s ease !important;
     }
     .floating-btn-container button:hover {
@@ -309,18 +325,18 @@ if "chat_open" not in st.session_state:
 
 # Render columns split if chat widget is open
 if st.session_state.chat_open:
-    col_web, col_chat = st.columns([6.5, 3.5])
+    col_web, col_chat = st.columns([8.5, 3.5])
 else:
     col_web = st.container()
     col_chat = None
 
-# Render Website Layout (Always centered in background, no wide stretching)
+# Render Website Layout (Centered-like layout inside wide viewport)
 with col_web:
     st.markdown(f"<h1 style='font-size:2.4rem; font-weight:700; margin-bottom:0;'>🏢 {bot_info['name']}</h1>", unsafe_allow_html=True)
     if bot_info['website_url']:
         st.caption(f"Official Portal: [{bot_info['website_url']}]({bot_info['website_url']})")
     st.markdown("---")
-    st.write("Welcome to our simple web portal. Feel free to browse around or activate the support agent in the bottom right corner.")
+    st.write("Welcome to our web portal. Feel free to browse around or activate the support agent in the bottom right corner.")
 
 # Render Chat Widget Window (As Inline Column, no floating container overlay)
 if st.session_state.chat_open and col_chat is not None:
@@ -363,7 +379,7 @@ if st.session_state.chat_open and col_chat is not None:
             st.html("<hr style='margin: 6px 0; border: 0; border-top: 1px solid rgba(128,128,128,0.15);'/>")
             
             # Scrollable chat logs container (reduced height to fit widget nicely)
-            chat_container = st.container(height=310)
+            chat_container = st.container(height=360)
             with chat_container:
                 for msg in st.session_state.chat_history:
                     render_custom_bubble(msg["role"], msg["content"], msg.get("sources"))
