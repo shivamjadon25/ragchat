@@ -4,9 +4,13 @@ import numpy as np
 import pypdf
 import os
 import requests
+import urllib3
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse, urljoin
 from supabase import create_client, Client
+
+# Disable SSL verification warnings
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # Set page configuration
 st.set_page_config(
@@ -57,7 +61,7 @@ def crawl_website(start_url, max_pages=30):
         progress_bar.progress(len(visited) / max_pages, text=f"Crawling website...")
         
         try:
-            response = requests.get(current_url, headers=headers, timeout=8)
+            response = requests.get(current_url, headers=headers, timeout=8, verify=False)
             content_type = response.headers.get("Content-Type", "")
             if "text/html" not in content_type:
                 continue
