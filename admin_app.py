@@ -23,8 +23,9 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Settings File Path
-SETTINGS_FILE = "/home/user/Documents/Projects/chatbot/bot_settings.json"
+# Settings File Path (resolved dynamically relative to this script)
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+SETTINGS_FILE = os.path.join(CURRENT_DIR, "bot_settings.json")
 
 def load_bot_settings():
     if os.path.exists(SETTINGS_FILE):
