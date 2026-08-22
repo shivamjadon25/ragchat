@@ -165,7 +165,7 @@ st.markdown("""
         bottom: 110px !important;
         right: 30px !important;
         width: 380px !important;
-        height: 520px !important;
+        height: 580px !important;
         z-index: 99999 !important;
         box-shadow: 0 8px 30px rgba(0, 0, 0, 0.1) !important;
         border-radius: 16px !important;
@@ -177,6 +177,20 @@ st.markdown("""
     /* Tighten vertical layout spacing inside the widget */
     div[data-testid="stVerticalBlockBorderWrapper"]:has(.chat-widget-marker) [data-testid="stVerticalBlock"] {
         gap: 6px !important;
+    }
+
+    /* Force header control buttons inside the second column to align horizontally to the right */
+    div[data-testid="stVerticalBlockBorderWrapper"]:has(.chat-widget-marker) [data-testid="column"]:nth-child(2) [data-testid="stVerticalBlock"] {
+        flex-direction: row !important;
+        justify-content: flex-end !important;
+        align-items: center !important;
+        gap: 6px !important;
+    }
+
+    /* Remove column spacing and margins in header */
+    div[data-testid="stVerticalBlockBorderWrapper"]:has(.chat-widget-marker) [data-testid="column"] {
+        padding: 0 !important;
+        margin: 0 !important;
     }
     
     /* Styling for the floating FAB button */
@@ -206,64 +220,68 @@ st.markdown("""
         background-color: #0069d9 !important;
     }
 
-    /* Style header titles to have zero margin */
+    /* Style header titles to have zero margin and small height */
     .chat-header-title {
         margin: 0 !important;
         padding: 0 !important;
-        font-size: 1.05rem !important;
+        font-size: 1.0rem !important;
         font-weight: 700 !important;
-        line-height: 1.2 !important;
+        line-height: 1.1 !important;
         color: var(--text-color);
     }
     .chat-header-status {
         margin: 0 !important;
         padding: 0 !important;
-        font-size: 0.72rem !important;
+        font-size: 0.68rem !important;
         font-weight: 600 !important;
         color: #28a745 !important;
     }
 
-    /* macOS style window control header buttons (compact 20px) */
+    /* macOS style window control header buttons (compact 18px) */
     .min-btn-wrapper button {
         border-radius: 50% !important;
-        width: 20px !important;
-        height: 20px !important;
+        width: 18px !important;
+        height: 18px !important;
+        min-width: 18px !important;
         min-height: unset !important;
         padding: 0 !important;
-        display: inline-flex !important;
-        align-items: center !important;
-        justify-content: center !important;
-        background-color: rgba(128, 128, 128, 0.12) !important;
+        background-color: #ffbd2e !important; /* macOS yellow */
         border: none !important;
         font-size: 8px !important;
         font-weight: bold !important;
-        color: var(--text-color) !important;
-        margin-top: 10px !important;
-        transition: background-color 0.2s !important;
+        color: rgba(0, 0, 0, 0.6) !important;
+        cursor: pointer;
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        margin-top: 2px !important;
+        transition: opacity 0.2s !important;
     }
     .min-btn-wrapper button:hover {
-        background-color: rgba(128, 128, 128, 0.25) !important;
+        opacity: 0.8 !important;
     }
 
     .close-btn-wrapper button {
         border-radius: 50% !important;
-        width: 20px !important;
-        height: 20px !important;
+        width: 18px !important;
+        height: 18px !important;
+        min-width: 18px !important;
         min-height: unset !important;
         padding: 0 !important;
-        display: inline-flex !important;
-        align-items: center !important;
-        justify-content: center !important;
-        background-color: rgba(220, 53, 69, 0.12) !important;
+        background-color: #ff5f56 !important; /* macOS red */
         border: none !important;
         font-size: 8px !important;
         font-weight: bold !important;
-        color: #dc3545 !important;
-        margin-top: 10px !important;
-        transition: background-color 0.2s !important;
+        color: rgba(0, 0, 0, 0.6) !important;
+        cursor: pointer;
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        margin-top: 2px !important;
+        transition: opacity 0.2s !important;
     }
     .close-btn-wrapper button:hover {
-        background-color: rgba(220, 53, 69, 0.25) !important;
+        opacity: 0.8 !important;
     }
 
     /* Style starter pill buttons */
@@ -335,12 +353,12 @@ if st.session_state.chat_open:
     with st.container(border=True):
         st.markdown('<div class="chat-widget-marker"></div>', unsafe_allow_html=True)
         
-        # Widget Header Row
-        hdr_c1, hdr_c2, hdr_c3 = st.columns([8, 1, 1])
+        # Widget Header Row (two columns: left for info, right for macOS controls)
+        hdr_c1, hdr_c2 = st.columns([7, 3])
         with hdr_c1:
             st.html(
                 f"""
-                <div style='margin-bottom: 0;'>
+                <div style='margin-top: 2px;'>
                     <div class='chat-header-title'>🤖 {bot_info['name']}</div>
                     <div class='chat-header-status'>● Online</div>
                 </div>
@@ -352,7 +370,7 @@ if st.session_state.chat_open:
                 st.session_state.chat_open = False
                 st.rerun()
             st.markdown('</div>', unsafe_allow_html=True)
-        with hdr_c3:
+            
             st.markdown('<div class="close-btn-wrapper">', unsafe_allow_html=True)
             if st.button("✕", key="close_chat_session", help="Close Session"):
                 st.session_state.chat_history = []
@@ -369,8 +387,8 @@ if st.session_state.chat_open:
             
         st.html("<hr style='margin: 4px 0; border: 0; border-top: 1px solid rgba(128,128,128,0.15);'/>")
         
-        # Scrollable chat logs container
-        chat_container = st.container(height=360)
+        # Scrollable chat logs container (increased height to 420px)
+        chat_container = st.container(height=420)
         with chat_container:
             for msg in st.session_state.chat_history:
                 render_custom_bubble(msg["role"], msg["content"], msg.get("sources"))
@@ -582,13 +600,15 @@ if st.session_state.chat_open:
                         
                 # System instruction fallback
                 default_system_prompt = (
-                    f"You are a helpful customer support agent representing {bot_info['name']}. "
-                    "Your answers should be friendly, conversational, and direct. "
-                    "Base your answer ONLY on the provided Context below. If the answer cannot be found in the context, "
-                    "politely state that you do not have that information and suggest contacting human support. "
-                    "Do not make up facts. "
-                    "IMPORTANT: Output ONLY the final response to the user. Do not include any chain of thought, reasoning, "
-                    "notes, drafts, self-corrections, or internal explanations. Start your response directly."
+                    f"[INSTRUCTION]\n"
+                    f"You are a helpful customer support agent representing {bot_info['name']}.\n"
+                    "- Your answers should be friendly, conversational, and direct.\n"
+                    "- Base your answer ONLY on the provided Context. If the answer cannot be found in the context, "
+                    "politely state that you do not have that information and suggest contacting human support.\n"
+                    "- Do not make up facts.\n"
+                    "- Output ONLY the final customer-facing response. Do NOT output any chain of thought, reasoning, "
+                    "notes, drafts, evaluations, self-corrections, or internal planning.\n"
+                    "[/INSTRUCTION]"
                 )
                 system_instruction = bot_settings.get("system_prompt")
                 if not system_instruction:
@@ -655,7 +675,13 @@ if st.session_state.chat_open:
                         if is_smalltalk:
                             messages_payload.append({
                                 "role": "system", 
-                                "content": "Respond politely and briefly to the user's greeting, smalltalk, or acknowledgement. Do not make up facts or mention documentation."
+                                "content": (
+                                    "[INSTRUCTION]\n"
+                                    "Respond politely and briefly to the user's greeting, smalltalk, or acknowledgement. "
+                                    "Do not make up facts or mention documentation. "
+                                    "Output ONLY the final response. Do NOT output any chain of thought, reasoning, notes, drafts, or self-corrections.\n"
+                                    "[/INSTRUCTION]"
+                                )
                             })
                         else:
                             sys_content = system_instruction if system_instruction else default_system_prompt
@@ -783,7 +809,13 @@ if st.session_state.chat_open:
                                     if is_smalltalk:
                                         messages_payload.append({
                                             "role": "system", 
-                                            "content": "Respond politely and briefly to the user's greeting, smalltalk, or acknowledgement. Do not make up facts or mention documentation."
+                                            "content": (
+                                                "[INSTRUCTION]\n"
+                                                "Respond politely and briefly to the user's greeting, smalltalk, or acknowledgement. "
+                                                "Do not make up facts or mention documentation. "
+                                                "Output ONLY the final response. Do NOT output any chain of thought, reasoning, notes, drafts, or self-corrections.\n"
+                                                "[/INSTRUCTION]"
+                                            )
                                         })
                                     else:
                                         sys_content = system_instruction if system_instruction else default_system_prompt
@@ -891,3 +923,21 @@ if not st.session_state.chat_open:
         st.session_state.chat_open = True
         st.rerun()
     st.markdown('</div>', unsafe_allow_html=True)
+
+# Auto-scroll helper injection
+if st.session_state.chat_open:
+    st.html(
+        """
+        <iframe src="about:blank" style="display:none;" onload="
+            setTimeout(() => {
+                const widget = window.parent.document.querySelector('div[data-testid*=stVerticalBlockBorderWrapper]:has(.chat-widget-marker)');
+                if (widget) {
+                    const scrollable = widget.querySelector('div[style*=\\'overflow\\']');
+                    if (scrollable) {
+                        scrollable.scrollTop = scrollable.scrollHeight;
+                    }
+                }
+            }, 50);
+        "></iframe>
+        """
+    )
