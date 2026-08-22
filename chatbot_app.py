@@ -144,12 +144,28 @@ if prompt := st.chat_input("Ask a question..."):
         try:
             # Generate Embedding for prompt
             genai.configure(api_key=gemini_key)
+            
+            # Dynamically resolve embedding model name from the user's active API
+            embedding_model = "models/text-embedding-004"
+            try:
+                models = genai.list_models()
+                valid_models = [m.name for m in models if 'embedContent' in m.supported_generation_methods]
+                for m in ["models/text-embedding-004", "models/embedding-001"]:
+                    if m in valid_models:
+                        embedding_model = m
+                        break
+                else:
+                    if valid_models:
+                        embedding_model = valid_models[0]
+            except Exception as e:
+                pass
+
             emb_res = genai.embed_content(
-                model="models/embedding-001",
+                model=embedding_model,
                 content=prompt,
                 task_type="retrieval_query"
             )
-            query_embedding = emb_res['embedding']
+            query_embedding = emb_res['embedding'][:768]
             
             # Executepgvector RPC search in Supabase
             rpc_res = supabase.rpc("match_documents", {

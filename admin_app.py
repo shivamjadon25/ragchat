@@ -114,18 +114,37 @@ def chunk_text(text, chunk_size=1000, chunk_overlap=200):
 # Helper: Generate embeddings
 def generate_embeddings(chunks, api_key):
     genai.configure(api_key=api_key)
+    
+    # 1. Dynamically resolve embedding model name from the user's active API
+    embedding_model = "models/text-embedding-004"
+    try:
+        models = genai.list_models()
+        valid_models = [m.name for m in models if 'embedContent' in m.supported_generation_methods]
+        for m in ["models/text-embedding-004", "models/embedding-001"]:
+            if m in valid_models:
+                embedding_model = m
+                break
+        else:
+            if valid_models:
+                embedding_model = valid_models[0]
+    except Exception as e:
+        # Fallback default if API permissions block model listing
+        pass
+
     embeddings = []
     batch_size = 50
-    progress_bar = st.progress(0, text="Generating embeddings...")
+    progress_bar = st.progress(0, text=f"Generating embeddings using {embedding_model}...")
     for i in range(0, len(chunks), batch_size):
         batch = chunks[i:i + batch_size]
         try:
             result = genai.embed_content(
-                model="models/embedding-001",
+                model=embedding_model,
                 content=batch,
                 task_type="retrieval_document"
             )
-            embeddings.extend(result['embedding'])
+            # Ensure every vector fits the database column limit (slicing MRL dimensions to 768 if needed)
+            sliced = [emb[:768] for emb in result['embedding']]
+            embeddings.extend(sliced)
         except Exception as e:
             st.error(f"Embedding error: {e}")
             return None
