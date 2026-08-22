@@ -1,0 +1,13 @@
+# Python caching
+__pycache__/
+*.pyc
+
+# Local vector storage (so you don't commit test data, unless you want to!)
+# Remove the line below if you WANT to pre-load a database and push it to GitHub
+vector_store.pkl
+
+# Virtual environment
+.venv/
+venv/
+env/
+.env
