@@ -2,6 +2,7 @@ import streamlit as st
 import google.generativeai as genai
 import os
 import json
+import time
 from urllib.parse import urlparse
 from supabase import create_client, Client
 
@@ -9,7 +10,7 @@ from supabase import create_client, Client
 st.set_page_config(
     page_title="Customer Chatbot Support",
     page_icon="💬",
-    layout="centered"
+    layout="wide"
 )
 
 # Settings File Path
@@ -119,251 +120,337 @@ if st.session_state.conversation_id is None:
         st.error(f"Error starting conversation session in database: {e}")
         st.stop()
 
-# ----------------- DISPLAY CHAT HEADER -----------------
-col_title, col_reset = st.columns([8, 2])
-with col_title:
-    st.title(f"💬 {bot_info['name']}")
-    if bot_info['website_url']:
-        st.caption(f"Support agent for: [{bot_info['website_url']}]({bot_info['website_url']})")
-    else:
-        st.caption("Custom Support Agent")
-with col_reset:
-    st.write("") # alignment spacing
-    if st.button("🔄 Reset Chat", use_container_width=True, help="Clear history and start a new conversation session"):
-        st.session_state.chat_history = []
-        st.session_state.conversation_id = None
-        st.rerun()
-
-st.markdown("---")
-
-# Show chat history
-for msg in st.session_state.chat_history:
-    with st.chat_message(msg["role"]):
-        st.markdown(msg["content"])
-        if "sources" in msg and msg["sources"]:
-            st.markdown("<div style='display:flex; flex-wrap:wrap; gap:8px; margin-top:8px;'>", unsafe_allow_html=True)
-            for src_url, similarity in msg["sources"]:
-                domain = urlparse(src_url).netloc or "Source Link"
-                st.markdown(
-                    f"<a href='{src_url}' target='_blank' style='text-decoration:none; color:var(--text-color); background-color:var(--secondary-background-color); border:1px solid rgba(128,128,128,0.25); padding:4px 10px; border-radius:16px; font-size:0.8rem; display:inline-flex; align-items:center; gap:4px;'>"
-                    f"🔗 {domain} <span style='opacity:0.6;'>({similarity:.2f})</span>"
-                    f"</a>",
-                    unsafe_allow_html=True
-                )
-            st.markdown("</div>", unsafe_allow_html=True)
-
-# ----------------- PROMPT AND LOGIC RESOLUTION -----------------
-prompt = None
-
-# If chat history is empty, show starter suggestions
+# Ensure Welcome Message exists in history
 if not st.session_state.chat_history:
-    st.markdown("<p style='text-align:center; opacity:0.8; font-size:1.1rem; margin-top:2rem;'>Hello! How can I assist you today?</p>", unsafe_allow_html=True)
-    st.markdown("<div style='margin-bottom:1.5rem;'></div>", unsafe_allow_html=True)
-    
-    col_s1, col_s2 = st.columns(2)
-    starters = [
-        f"What services does {bot_info['name']} offer?",
-        f"How can I contact support representatives?",
-        f"Can you summarize the main features?",
-        f"Where can I find additional documentation?"
-    ]
-    
-    with col_s1:
-        if st.button(starters[0], key="starter_0", use_container_width=True):
-            st.session_state.selected_prompt = starters[0]
-            st.rerun()
-        if st.button(starters[1], key="starter_1", use_container_width=True):
-            st.session_state.selected_prompt = starters[1]
-            st.rerun()
-    with col_s2:
-        if st.button(starters[2], key="starter_2", use_container_width=True):
-            st.session_state.selected_prompt = starters[2]
-            st.rerun()
-        if st.button(starters[3], key="starter_3", use_container_width=True):
-            st.session_state.selected_prompt = starters[3]
-            st.rerun()
+    welcome_text = f"Hello! Welcome to {bot_info['name']} support. How can I help you today?"
+    st.session_state.chat_history.append({"role": "assistant", "content": welcome_text})
 
-# Check click selections
-if "selected_prompt" in st.session_state and st.session_state.selected_prompt:
-    prompt = st.session_state.selected_prompt
-    st.session_state.selected_prompt = None
+# Custom CSS for Floating Action Button
+st.markdown("""
+<style>
+    .floating-btn-container {
+        position: fixed;
+        bottom: 30px;
+        right: 30px;
+        z-index: 9999;
+    }
+    .floating-btn-container button {
+        background-color: var(--primary-color) !important;
+        color: white !important;
+        border-radius: 50% !important;
+        width: 65px !important;
+        height: 65px !important;
+        font-size: 32px !important;
+        box-shadow: 0 4px 18px rgba(0,0,0,0.22) !important;
+        border: none !important;
+        cursor: pointer !important;
+        transition: transform 0.2s !important;
+    }
+    .floating-btn-container button:hover {
+        transform: scale(1.08) !important;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# ----------------- PAGE LAYOUT ROUTING -----------------
+if "chat_open" not in st.session_state:
+    st.session_state.chat_open = False
+
+# Render company mock page vs side chat panel
+if st.session_state.chat_open:
+    col_web, col_chat = st.columns([6, 4])
 else:
-    prompt_input = st.chat_input("Ask a question...")
-    if prompt_input:
-        prompt = prompt_input
+    col_web = st.container()
+    col_chat = None
 
-if prompt:
-    # Display user message
-    with st.chat_message("user"):
-        st.markdown(prompt)
-    st.session_state.chat_history.append({"role": "user", "content": prompt})
+# Render Website Layout
+with col_web:
+    st.markdown(f"<h1 style='font-size:3rem; font-weight:800; margin-bottom:0;'>🏢 {bot_info['name']}</h1>", unsafe_allow_html=True)
+    if bot_info['website_url']:
+        st.markdown(f"<p style='font-size:1.2rem; opacity:0.8;'>Empowering client success at <a href='{bot_info['website_url']}' target='_blank'>{bot_info['website_url']}</a></p>", unsafe_allow_html=True)
+    else:
+        st.markdown("<p style='font-size:1.2rem; opacity:0.8;'>Empowering your digital operations.</p>", unsafe_allow_html=True)
+        
+    st.markdown("---")
     
-    # Save User message to Database
-    try:
-        supabase.table("messages").insert({
-            "conversation_id": st.session_state.conversation_id,
-            "role": "user",
-            "content": prompt
-        }).execute()
-    except Exception as e:
-        st.warning(f"Failed to log user message to database: {e}")
-
-    # 1. RAG Search (Retrieve matching content from Supabase vector index)
-    context = ""
-    sources = []
+    # Beautiful landing details
+    st.markdown("""
+    ### 🚀 Leading Intelligent Solutions
+    We build and deliver cutting-edge systems tailored to streamline your customer experiences. Our platform utilizes advanced vector search indexing paired with state-of-the-art large language models to deliver accurate assistance.
     
-    with st.spinner("Searching knowledge base..."):
-        try:
-            # Generate Embedding for prompt
-            genai.configure(api_key=gemini_key)
-            
-            # Dynamically resolve embedding model name from the user's active API
-            embedding_model = "models/text-embedding-004"
-            try:
-                models = genai.list_models()
-                valid_models = [m.name for m in models if 'embedContent' in m.supported_generation_methods]
-                for m in ["models/text-embedding-004", "models/embedding-001"]:
-                    if m in valid_models:
-                        embedding_model = m
-                        break
-                else:
-                    if valid_models:
-                        embedding_model = valid_models[0]
-            except Exception as e:
-                pass
+    ### 🌟 Key Platforms
+    *   **24/7 Digital Support Agent:** Never keep your clients waiting.
+    *   **Contextual Knowledge Retrieval:** Answers fetched directly from verified technical documentation.
+    *   **Live Web Crawling:** Dynamic data ingestion syncing with your official website automatically.
+    
+    *Need help? Click the chat bubble icon in the bottom right corner of the screen to launch our interactive support assistant.*
+    """)
 
-            emb_res = genai.embed_content(
-                model=embedding_model,
-                content=prompt,
-                task_type="retrieval_query"
-            )
-            query_embedding = emb_res['embedding'][:768]
-            
-            # Execute pgvector RPC search in Supabase
-            rpc_res = supabase.rpc("match_documents", {
-                "query_embedding": query_embedding,
-                "match_threshold": 0.25,
-                "match_count": 4,
-                "filter_bot_id": bot_id
-            }).execute()
-            
-            matches = rpc_res.data or []
-            
-            context_parts = []
-            for match in matches:
-                context_parts.append(f"Source URL: {match['url']}\nContent:\n{match['content']}\n---\n")
-                if (match['url'], match['similarity']) not in sources:
-                    sources.append((match['url'], match['similarity']))
-            
-            context = "\n".join(context_parts)
-        except Exception as e:
-            st.error(f"Search retrieval error: {e}")
-            
-    # 2. Generation using Gemini
-    with st.chat_message("assistant"):
-        message_placeholder = st.empty()
+# Render Chat Widget
+if st.session_state.chat_open and col_chat is not None:
+    with col_chat:
+        st.markdown("""
+        <div style="border: 1px solid rgba(128,128,128,0.18); border-radius: 14px; padding: 20px; background-color: var(--secondary-background-color); box-shadow: 0 8px 30px rgba(0,0,0,0.06); height: 100%;">
+        """, unsafe_allow_html=True)
         
-        # Load settings
-        bot_settings = load_bot_settings(bot_id)
-        
-        # Select base model
-        generation_model = bot_settings.get("model_name", "models/gemini-2.5-flash")
-        
-        # Dynamic model fallback if default
-        if generation_model in ["models/gemini-2.5-flash", "models/gemini-1.5-flash", "gemini-2.5-flash", "gemini-1.5-flash"]:
-            try:
-                models = genai.list_models()
-                valid_models = [m.name for m in models if 'generateContent' in m.supported_generation_methods]
-                for m in ["models/gemini-2.5-flash", "models/gemini-3.5-flash", "models/gemini-1.5-flash"]:
-                    if m in valid_models:
-                        generation_model = m
-                        break
-                else:
-                    flash_models = [m for m in valid_models if "flash" in m]
-                    if flash_models:
-                        generation_model = flash_models[0]
-                    elif valid_models:
-                        generation_model = valid_models[0]
-            except Exception as e:
-                pass
+        # Header block
+        hdr_c1, hdr_c2 = st.columns([8, 2])
+        with hdr_c1:
+            st.markdown(f"<h3 style='margin:0;'>🤖 Support Bot</h3>", unsafe_allow_html=True)
+            st.markdown("<span style='color:#28a745; font-size:0.85rem; font-weight:600;'>● Online Support</span>", unsafe_allow_html=True)
+        with hdr_c2:
+            if st.button("✕", key="close_chat_widget", help="Minimize Chat"):
+                st.session_state.chat_open = False
+                st.rerun()
                 
-        # System instruction fallback
-        default_system_prompt = (
-            f"You are a helpful customer support agent representing {bot_info['name']}. "
-            "Your answers should be friendly, conversational, and direct. "
-            "Base your answer ONLY on the provided Context below. If the answer cannot be found in the context, "
-            "politely state that you do not have that information and suggest contacting human support. "
-            "Do not make up facts."
-        )
-        system_instruction = bot_settings.get("system_prompt")
-        if not system_instruction:
-            system_instruction = default_system_prompt
-            
-        generation_config = {
-            "temperature": float(bot_settings.get("temperature", 0.7)),
-            "top_p": float(bot_settings.get("top_p", 0.95)),
-            "max_output_tokens": int(bot_settings.get("max_output_tokens", 1024))
-        }
+        st.markdown("---")
         
-        if context:
-            full_prompt = (
-                f"Context about {bot_info['name']}:\n{context}\n\n"
-                f"User Question: {prompt}\n"
-                f"Answer: "
-            )
+        # Chat history container
+        chat_container = st.container(height=420)
+        with chat_container:
+            for msg in st.session_state.chat_history:
+                with st.chat_message(msg["role"]):
+                    st.markdown(msg["content"])
+                    if "sources" in msg and msg["sources"]:
+                        st.markdown("<div style='display:flex; flex-wrap:wrap; gap:8px; margin-top:8px;'>", unsafe_allow_html=True)
+                        for src_url, similarity in msg["sources"]:
+                            domain = urlparse(src_url).netloc or "Source"
+                            st.markdown(
+                                f"<a href='{src_url}' target='_blank' style='text-decoration:none; color:var(--text-color); background-color:var(--background-color); border:1px solid rgba(128,128,128,0.22); padding:3px 9px; border-radius:12px; font-size:0.75rem; display:inline-flex; align-items:center; gap:4px;'>🔍 {domain} ({similarity:.2f})</a>",
+                                unsafe_allow_html=True
+                            )
+                        st.markdown("</div>", unsafe_allow_html=True)
+            
+            # Show starters inside container if history only contains welcome message
+            if len(st.session_state.chat_history) <= 1:
+                st.markdown("<p style='font-size:0.85rem; opacity:0.8; margin-top:20px; margin-bottom:5px; font-weight:600;'>💡 Frequently Asked Questions:</p>", unsafe_allow_html=True)
+                starters = [
+                    "What services do you offer?",
+                    "How do I contact support?",
+                    "Summarize the main features."
+                ]
+                for idx, q in enumerate(starters):
+                    if st.button(q, key=f"starter_q_{idx}", use_container_width=True):
+                        st.session_state.selected_prompt = q
+                        st.rerun()
+
+        # Handle Prompt Input
+        prompt = None
+        if "selected_prompt" in st.session_state and st.session_state.selected_prompt:
+            prompt = st.session_state.selected_prompt
+            st.session_state.selected_prompt = None
         else:
-            full_prompt = (
-                f"Note: No documents or website pages have been ingested for this bot yet. "
-                "Politely inform the user that you are still being configured and do not have access to any knowledge yet.\n"
-                f"User Question: {prompt}\n"
-                f"Answer: "
-            )
+            prompt_input = st.chat_input("Ask a question...")
+            if prompt_input:
+                prompt = prompt_input
+                
+        if prompt:
+            # Display user message
+            with chat_container:
+                with st.chat_message("user"):
+                    st.markdown(prompt)
+            st.session_state.chat_history.append({"role": "user", "content": prompt})
             
-        try:
-            model = genai.GenerativeModel(
-                model_name=generation_model,
-                system_instruction=system_instruction if context else None
-            )
+            # Save User message to Database
+            try:
+                supabase.table("messages").insert({
+                    "conversation_id": st.session_state.conversation_id,
+                    "role": "user",
+                    "content": prompt
+                }).execute()
+            except Exception as e:
+                pass
             
-            # Stream the response
-            full_response = ""
-            response_stream = model.generate_content(
-                full_prompt, 
-                generation_config=generation_config,
-                stream=True
-            )
-            for chunk in response_stream:
-                full_response += chunk.text
-                message_placeholder.markdown(full_response + "▌")
+            # Check for goodbye
+            clean_prompt = "".join(c for c in prompt.lower() if c.isalnum() or c.isspace()).strip()
+            if clean_prompt in ["bye", "goodbye", "exit", "quit", "bye bye"]:
+                farewell = f"Goodbye! Thank you for contacting {bot_info['name']} support. Starting a new chat session..."
+                with chat_container:
+                    with st.chat_message("assistant"):
+                        st.markdown(farewell)
+                st.session_state.chat_history.append({"role": "assistant", "content": farewell})
+                
+                try:
+                    supabase.table("messages").insert({
+                        "conversation_id": st.session_state.conversation_id,
+                        "role": "assistant",
+                        "content": farewell
+                    }).execute()
+                except:
+                    pass
+                
+                time.sleep(2.0)
+                st.session_state.chat_history = []
+                st.session_state.conversation_id = None
+                st.rerun()
+
+            # 1. RAG Search (Retrieve matching content from Supabase vector index)
+            context = ""
+            sources = []
             
-            message_placeholder.markdown(full_response)
-            
-            # Show sources if RAG was active
-            if sources:
-                st.markdown("<div style='display:flex; flex-wrap:wrap; gap:8px; margin-top:8px;'>", unsafe_allow_html=True)
-                for src_url, similarity in sources:
-                    domain = urlparse(src_url).netloc or "Source Link"
-                    st.markdown(
-                        f"<a href='{src_url}' target='_blank' style='text-decoration:none; color:var(--text-color); background-color:var(--secondary-background-color); border:1px solid rgba(128,128,128,0.25); padding:4px 10px; border-radius:16px; font-size:0.8rem; display:inline-flex; align-items:center; gap:4px;'>"
-                        f"🔗 {domain} <span style='opacity:0.6;'>({similarity:.2f})</span>"
-                        f"</a>",
-                        unsafe_allow_html=True
-                    )
-                st.markdown("</div>", unsafe_allow_html=True)
+            with chat_container:
+                with st.spinner("Searching knowledge base..."):
+                    try:
+                        # Generate Embedding for prompt
+                        genai.configure(api_key=gemini_key)
                         
-            # Save Assistant response to Session State
-            st.session_state.chat_history.append({
-                "role": "assistant",
-                "content": full_response,
-                "sources": sources
-            })
+                        # Dynamically resolve embedding model name from the user's active API
+                        embedding_model = "models/text-embedding-004"
+                        try:
+                            models = genai.list_models()
+                            valid_models = [m.name for m in models if 'embedContent' in m.supported_generation_methods]
+                            for m in ["models/text-embedding-004", "models/embedding-001"]:
+                                if m in valid_models:
+                                    embedding_model = m
+                                    break
+                            else:
+                                if valid_models:
+                                    embedding_model = valid_models[0]
+                        except Exception as e:
+                            pass
+
+                        emb_res = genai.embed_content(
+                            model=embedding_model,
+                            content=prompt,
+                            task_type="retrieval_query"
+                        )
+                        query_embedding = emb_res['embedding'][:768]
+                        
+                        # Execute pgvector RPC search in Supabase
+                        rpc_res = supabase.rpc("match_documents", {
+                            "query_embedding": query_embedding,
+                            "match_threshold": 0.25,
+                            "match_count": 4,
+                            "filter_bot_id": bot_id
+                        }).execute()
+                        
+                        matches = rpc_res.data or []
+                        
+                        context_parts = []
+                        for match in matches:
+                            context_parts.append(f"Source URL: {match['url']}\nContent:\n{match['content']}\n---\n")
+                            if (match['url'], match['similarity']) not in sources:
+                                sources.append((match['url'], match['similarity']))
+                        
+                        context = "\n".join(context_parts)
+                    except Exception as e:
+                        st.error(f"Search retrieval error: {e}")
             
-            # Save Assistant response to Database
-            supabase.table("messages").insert({
-                "conversation_id": st.session_state.conversation_id,
-                "role": "assistant",
-                "content": full_response
-            }).execute()
-            
-        except Exception as e:
-            st.error(f"Error generating response: {e}")
+            # 2. Generation using Gemini
+            with chat_container:
+                with st.chat_message("assistant"):
+                    message_placeholder = st.empty()
+                    
+                    # Load settings
+                    bot_settings = load_bot_settings(bot_id)
+                    
+                    # Select base model
+                    generation_model = bot_settings.get("model_name", "models/gemini-2.5-flash")
+                    
+                    # Dynamic model fallback if default
+                    if generation_model in ["models/gemini-2.5-flash", "models/gemini-1.5-flash", "gemini-2.5-flash", "gemini-1.5-flash"]:
+                        try:
+                            models = genai.list_models()
+                            valid_models = [m.name for m in models if 'generateContent' in m.supported_generation_methods]
+                            for m in ["models/gemini-2.5-flash", "models/gemini-3.5-flash", "models/gemini-1.5-flash"]:
+                                if m in valid_models:
+                                    generation_model = m
+                                    break
+                            else:
+                                flash_models = [m for m in valid_models if "flash" in m]
+                                if flash_models:
+                                    generation_model = flash_models[0]
+                                elif valid_models:
+                                    generation_model = valid_models[0]
+                        except Exception as e:
+                            pass
+                            
+                    # System instruction fallback
+                    default_system_prompt = (
+                        f"You are a helpful customer support agent representing {bot_info['name']}. "
+                        "Your answers should be friendly, conversational, and direct. "
+                        "Base your answer ONLY on the provided Context below. If the answer cannot be found in the context, "
+                        "politely state that you do not have that information and suggest contacting human support. "
+                        "Do not make up facts."
+                    )
+                    system_instruction = bot_settings.get("system_prompt")
+                    if not system_instruction:
+                        system_instruction = default_system_prompt
+                        
+                    generation_config = {
+                        "temperature": float(bot_settings.get("temperature", 0.7)),
+                        "top_p": float(bot_settings.get("top_p", 0.95)),
+                        "max_output_tokens": int(bot_settings.get("max_output_tokens", 1024))
+                    }
+                    
+                    if context:
+                        full_prompt = (
+                            f"Context about {bot_info['name']}:\n{context}\n\n"
+                            f"User Question: {prompt}\n"
+                            f"Answer: "
+                        )
+                    else:
+                        full_prompt = (
+                            f"Note: No documents or website pages have been ingested for this bot yet. "
+                            "Politely inform the user that you are still being configured and do not have access to any knowledge yet.\n"
+                            f"User Question: {prompt}\n"
+                            f"Answer: "
+                        )
+                        
+                    try:
+                        model = genai.GenerativeModel(
+                            model_name=generation_model,
+                            system_instruction=system_instruction if context else None
+                        )
+                        
+                        # Stream the response
+                        full_response = ""
+                        response_stream = model.generate_content(
+                            full_prompt, 
+                            generation_config=generation_config,
+                            stream=True
+                        )
+                        for chunk in response_stream:
+                            full_response += chunk.text
+                            message_placeholder.markdown(full_response + "▌")
+                        
+                        message_placeholder.markdown(full_response)
+                        
+                        # Show sources if RAG was active
+                        if sources:
+                            st.markdown("<div style='display:flex; flex-wrap:wrap; gap:8px; margin-top:8px;'>", unsafe_allow_html=True)
+                            for src_url, similarity in sources:
+                                domain = urlparse(src_url).netloc or "Source Link"
+                                st.markdown(
+                                    f"<a href='{src_url}' target='_blank' style='text-decoration:none; color:var(--text-color); background-color:var(--background-color); border:1px solid rgba(128,128,128,0.25); padding:4px 10px; border-radius:16px; font-size:0.8rem; display:inline-flex; align-items:center; gap:4px;'>🔗 {domain} <span style='opacity:0.6;'>({similarity:.2f})</span></a>",
+                                    unsafe_allow_html=True
+                                )
+                            st.markdown("</div>", unsafe_allow_html=True)
+                                    
+                        # Save Assistant response to Session State
+                        st.session_state.chat_history.append({
+                            "role": "assistant",
+                            "content": full_response,
+                            "sources": sources
+                        })
+                        
+                        # Save Assistant response to Database
+                        supabase.table("messages").insert({
+                            "conversation_id": st.session_state.conversation_id,
+                            "role": "assistant",
+                            "content": full_response
+                        }).execute()
+                        
+                        st.rerun()
+                        
+                    except Exception as e:
+                        st.error(f"Error generating response: {e}")
+        st.markdown("</div>", unsafe_allow_html=True)
+
+# Render Floating Chatbot Logo Trigger Button on the right side
+if not st.session_state.chat_open:
+    st.markdown('<div class="floating-btn-container">', unsafe_allow_html=True)
+    if st.button("💬", key="fab_widget_trigger", help="Open Support Chat"):
+        st.session_state.chat_open = True
+        st.rerun()
+    st.markdown('</div>', unsafe_allow_html=True)
