@@ -179,18 +179,23 @@ st.markdown("""
         gap: 6px !important;
     }
 
-    /* Force header control buttons inside the second column to align horizontally to the right */
-    div[data-testid="stVerticalBlockBorderWrapper"]:has(.chat-widget-marker) [data-testid="column"]:nth-child(2) [data-testid="stVerticalBlock"] {
-        flex-direction: row !important;
-        justify-content: flex-end !important;
-        align-items: center !important;
-        gap: 6px !important;
+    /* Absolute position the macOS window controls in the top-right corner of the widget */
+    div[data-testid="stVerticalBlockBorderWrapper"]:has(.chat-widget-marker) .min-btn-wrapper {
+        position: absolute !important;
+        top: 14px !important;
+        right: 44px !important;
+        z-index: 100001 !important;
+        margin: 0 !important;
+        padding: 0 !important;
     }
 
-    /* Remove column spacing and margins in header */
-    div[data-testid="stVerticalBlockBorderWrapper"]:has(.chat-widget-marker) [data-testid="column"] {
-        padding: 0 !important;
+    div[data-testid="stVerticalBlockBorderWrapper"]:has(.chat-widget-marker) .close-btn-wrapper {
+        position: absolute !important;
+        top: 14px !important;
+        right: 18px !important;
+        z-index: 100001 !important;
         margin: 0 !important;
+        padding: 0 !important;
     }
     
     /* Styling for the floating FAB button */
@@ -237,13 +242,15 @@ st.markdown("""
         color: #28a745 !important;
     }
 
-    /* macOS style window control header buttons (compact 18px) */
+    /* macOS style window control header buttons (compact 18px circular dots) */
     .min-btn-wrapper button {
         border-radius: 50% !important;
         width: 18px !important;
         height: 18px !important;
         min-width: 18px !important;
-        min-height: unset !important;
+        min-height: 18px !important;
+        max-width: 18px !important;
+        max-height: 18px !important;
         padding: 0 !important;
         background-color: #ffbd2e !important; /* macOS yellow */
         border: none !important;
@@ -251,11 +258,11 @@ st.markdown("""
         font-weight: bold !important;
         color: rgba(0, 0, 0, 0.6) !important;
         cursor: pointer;
-        display: inline-flex !important;
+        display: flex !important;
         align-items: center !important;
         justify-content: center !important;
-        margin-top: 2px !important;
         transition: opacity 0.2s !important;
+        line-height: 1 !important;
     }
     .min-btn-wrapper button:hover {
         opacity: 0.8 !important;
@@ -266,7 +273,9 @@ st.markdown("""
         width: 18px !important;
         height: 18px !important;
         min-width: 18px !important;
-        min-height: unset !important;
+        min-height: 18px !important;
+        max-width: 18px !important;
+        max-height: 18px !important;
         padding: 0 !important;
         background-color: #ff5f56 !important; /* macOS red */
         border: none !important;
@@ -274,11 +283,11 @@ st.markdown("""
         font-weight: bold !important;
         color: rgba(0, 0, 0, 0.6) !important;
         cursor: pointer;
-        display: inline-flex !important;
+        display: flex !important;
         align-items: center !important;
         justify-content: center !important;
-        margin-top: 2px !important;
         transition: opacity 0.2s !important;
+        line-height: 1 !important;
     }
     .close-btn-wrapper button:hover {
         opacity: 0.8 !important;
@@ -353,37 +362,35 @@ if st.session_state.chat_open:
     with st.container(border=True):
         st.markdown('<div class="chat-widget-marker"></div>', unsafe_allow_html=True)
         
-        # Widget Header Row (two columns: left for info, right for macOS controls)
-        hdr_c1, hdr_c2 = st.columns([7, 3])
-        with hdr_c1:
-            st.html(
-                f"""
-                <div style='margin-top: 2px;'>
-                    <div class='chat-header-title'>🤖 {bot_info['name']}</div>
-                    <div class='chat-header-status'>● Online</div>
-                </div>
-                """
-            )
-        with hdr_c2:
-            st.markdown('<div class="min-btn-wrapper">', unsafe_allow_html=True)
-            if st.button("─", key="minimize_chat_widget", help="Minimize"):
-                st.session_state.chat_open = False
-                st.rerun()
-            st.markdown('</div>', unsafe_allow_html=True)
-            
-            st.markdown('<div class="close-btn-wrapper">', unsafe_allow_html=True)
-            if st.button("✕", key="close_chat_session", help="Close Session"):
-                st.session_state.chat_history = []
-                st.session_state.conversation_id = None
-                st.session_state.chat_open = False
-                st.session_state.last_activity = time.time()
-                try:
-                    conv_res = supabase.table("conversations").insert({"bot_id": bot_id}).execute()
-                    st.session_state.conversation_id = conv_res.data[0]["id"]
-                except:
-                    pass
-                st.rerun()
-            st.markdown('</div>', unsafe_allow_html=True)
+        # Widget Header Row (absolute-positioned controls are overlaid via CSS)
+        st.html(
+            f"""
+            <div style='margin-top: 2px; margin-bottom: 2px;'>
+                <div class='chat-header-title'>🤖 {bot_info['name']}</div>
+                <div class='chat-header-status'>● Online</div>
+            </div>
+            """
+        )
+        
+        st.markdown('<div class="min-btn-wrapper">', unsafe_allow_html=True)
+        if st.button("─", key="minimize_chat_widget", help="Minimize"):
+            st.session_state.chat_open = False
+            st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
+        
+        st.markdown('<div class="close-btn-wrapper">', unsafe_allow_html=True)
+        if st.button("✕", key="close_chat_session", help="Close Session"):
+            st.session_state.chat_history = []
+            st.session_state.conversation_id = None
+            st.session_state.chat_open = False
+            st.session_state.last_activity = time.time()
+            try:
+                conv_res = supabase.table("conversations").insert({"bot_id": bot_id}).execute()
+                st.session_state.conversation_id = conv_res.data[0]["id"]
+            except:
+                pass
+            st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
             
         st.html("<hr style='margin: 4px 0; border: 0; border-top: 1px solid rgba(128,128,128,0.15);'/>")
         
