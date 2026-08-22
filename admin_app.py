@@ -121,7 +121,7 @@ def generate_embeddings(chunks, api_key):
         batch = chunks[i:i + batch_size]
         try:
             result = genai.embed_content(
-                model="models/text-embedding-004",
+                model="models/embedding-001",
                 content=batch,
                 task_type="retrieval_document"
             )

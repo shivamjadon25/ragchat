@@ -145,7 +145,7 @@ if prompt := st.chat_input("Ask a question..."):
             # Generate Embedding for prompt
             genai.configure(api_key=gemini_key)
             emb_res = genai.embed_content(
-                model="models/text-embedding-004",
+                model="models/embedding-001",
                 content=prompt,
                 task_type="retrieval_query"
             )

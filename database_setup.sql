@@ -15,7 +15,7 @@ create table if not exists documents (
   bot_id text references bots(id) on delete cascade not null,
   url text not null,
   content text not null,
-  embedding vector(768) not null -- 768 dimensions matches Google's text-embedding-004
+  embedding vector(768) not null -- 768 dimensions matches Google's models/embedding-001
 );
 
 -- 4. Create the Conversations table (tracks analytics and sessions)
