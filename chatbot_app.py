@@ -45,6 +45,7 @@ def get_supabase_client(url, key):
 sb_url = st.secrets.get("SUPABASE_URL", os.environ.get("SUPABASE_URL", ""))
 sb_key = st.secrets.get("SUPABASE_KEY", os.environ.get("SUPABASE_KEY", ""))
 gemini_key = st.secrets.get("GEMINI_API_KEY", os.environ.get("GEMINI_API_KEY", ""))
+groq_key = st.secrets.get("GROQ_API_KEY", os.environ.get("GROQ_API_KEY", ""))
 
 # Sidebar Config for keys overriding
 with st.sidebar:
@@ -52,15 +53,21 @@ with st.sidebar:
     sb_url_in = st.text_input("Supabase Project URL:", value=sb_url, placeholder="https://xxxx.supabase.co")
     sb_key_in = st.text_input("Supabase API Key:", type="password", value=sb_key, placeholder="eyJhbG...")
     gemini_key_in = st.text_input("Gemini API Key:", type="password", value=gemini_key, placeholder="AIzaSy...")
+    groq_key_in = st.text_input("Groq API Key (Optional):", type="password", value=groq_key, placeholder="gsk_...")
     
     # Override defaults if input is provided
     if sb_url_in: sb_url = sb_url_in
     if sb_key_in: sb_key = sb_key_in
     if gemini_key_in: gemini_key = gemini_key_in
+    if groq_key_in: groq_key = groq_key_in
 
 # Validate credentials
-if not sb_url or not sb_key or not gemini_key:
-    st.info("⚠️ Please enter Supabase & Gemini API Keys in the sidebar to load the client chatbot.")
+if not sb_url or not sb_key:
+    st.info("⚠️ Please enter Supabase Project URL & API Key in the sidebar.")
+    st.stop()
+
+if not gemini_key and not groq_key:
+    st.info("⚠️ Please enter at least one LLM Provider Key (Gemini or Groq) in the sidebar config panel.")
     st.stop()
 
 supabase = get_supabase_client(sb_url, sb_key)
@@ -392,24 +399,128 @@ if prompt := st.chat_input("Ask a question..."):
                 f"Answer: "
             )
             
+        # Determine provider
+        use_groq = any(kw in generation_model.lower() for kw in ["llama", "mixtral", "gemma2"]) or (groq_key and not gemini_key)
+        
         try:
-            model = genai.GenerativeModel(
-                model_name=generation_model,
-                system_instruction=system_instruction if context else None
-            )
-            
-            # Stream the response
             full_response = ""
-            response_stream = model.generate_content(
-                full_prompt, 
-                generation_config=generation_config,
-                stream=True
-            )
-            for chunk in response_stream:
-                full_response += chunk.text
-                message_placeholder.markdown(full_response + "▌")
-            
-            message_placeholder.markdown(full_response)
+            if use_groq:
+                # Map default Groq model if the model doesn't match Groq names
+                groq_model = generation_model
+                if not any(kw in groq_model.lower() for kw in ["llama", "mixtral", "gemma"]):
+                    groq_model = "llama-3.3-70b-versatile"
+                    
+                import requests
+                headers = {
+                    "Authorization": f"Bearer {groq_key}",
+                    "Content-Type": "application/json"
+                }
+                
+                # Format messages payload
+                messages_payload = []
+                if is_smalltalk:
+                    messages_payload.append({
+                        "role": "system", 
+                        "content": "Respond politely and briefly to the user's greeting, smalltalk, or acknowledgement. Do not make up facts or mention documentation."
+                    })
+                elif system_instruction:
+                    messages_payload.append({"role": "system", "content": system_instruction})
+                else:
+                    messages_payload.append({"role": "system", "content": default_system_prompt})
+                    
+                if context and not is_smalltalk:
+                    messages_payload.append({"role": "system", "content": f"Context information about {bot_info['name']}:\n{context}"})
+                
+                # Load recent history
+                recent_history = st.session_state.chat_history[-7:-1] if len(st.session_state.chat_history) > 1 else []
+                for msg in recent_history:
+                    role_type = msg["role"]
+                    messages_payload.append({"role": role_type, "content": msg["content"]})
+                    
+                messages_payload.append({"role": "user", "content": prompt})
+                
+                payload = {
+                    "model": groq_model,
+                    "messages": messages_payload,
+                    "temperature": float(bot_settings.get("temperature", 0.7)),
+                    "max_tokens": int(bot_settings.get("max_output_tokens", 1024)),
+                    "top_p": float(bot_settings.get("top_p", 0.95)),
+                    "stream": True
+                }
+                
+                response = requests.post(
+                    "https://api.groq.com/openai/v1/chat/completions",
+                    headers=headers,
+                    json=payload,
+                    stream=True
+                )
+                
+                if response.status_code != 200:
+                    raise Exception(f"Groq API returned status code {response.status_code}: {response.text}")
+                
+                # Stream parsing
+                for line in response.iter_lines():
+                    if line:
+                        decoded_line = line.decode('utf-8')
+                        if decoded_line.startswith("data: "):
+                            data_str = decoded_line[6:].strip()
+                            if data_str == "[DONE]":
+                                break
+                            try:
+                                data_json = json.loads(data_str)
+                                delta = data_json["choices"][0]["delta"].get("content", "")
+                                full_response += delta
+                                message_placeholder.markdown(full_response + "▌")
+                            except:
+                                pass
+                message_placeholder.markdown(full_response)
+            else:
+                # Compile fallback list of models to try in case of 429 quota exceed
+                models_to_try = [generation_model]
+                try:
+                    available_models = genai.list_models()
+                    valid_gen_models = [m.name for m in available_models if 'generateContent' in m.supported_generation_methods]
+                    for m in ["models/gemini-2.5-flash", "models/gemini-2.5-flash-8b", "models/gemini-1.5-flash", "models/gemini-1.5-flash-8b", "models/gemini-1.5-pro"]:
+                        if m in valid_gen_models and m not in models_to_try:
+                            models_to_try.append(m)
+                except:
+                    pass
+                    
+                for fallback_m in ["models/gemini-2.5-flash", "models/gemini-2.5-flash-8b", "models/gemini-1.5-flash", "models/gemini-1.5-flash-8b", "models/gemini-1.5-pro"]:
+                    if fallback_m not in models_to_try:
+                        models_to_try.append(fallback_m)
+                        
+                success = False
+                last_error = None
+                
+                for active_model_name in models_to_try:
+                    try:
+                        model = genai.GenerativeModel(
+                            model_name=active_model_name,
+                            system_instruction=system_instruction if context else None
+                        )
+                        
+                        # Stream the response
+                        full_response = ""
+                        response_stream = model.generate_content(
+                            full_prompt, 
+                            generation_config=generation_config,
+                            stream=True
+                        )
+                        for chunk in response_stream:
+                            full_response += chunk.text
+                            message_placeholder.markdown(full_response + "▌")
+                        
+                        message_placeholder.markdown(full_response)
+                        success = True
+                        break
+                    except Exception as e:
+                        last_error = e
+                        # Continue loop to try the next model
+                        continue
+                        
+                if not success:
+                    raise last_error if last_error else Exception("All fallback generative models failed to respond.")
             
             # Show sources if RAG was active
             if sources:

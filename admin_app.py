@@ -765,11 +765,22 @@ elif menu == "⚙️ GenAI & Model Settings":
         
         with st.form("model_settings_form"):
             # Select Model
-            model_options = ["models/gemini-2.5-flash", "models/gemini-3.5-flash", "models/gemini-2.5-pro"]
+            model_options = [
+                "models/gemini-2.5-flash", 
+                "models/gemini-3.5-flash", 
+                "models/gemini-2.5-pro",
+                "llama-3.3-70b-versatile",
+                "llama-3.1-8b-instant",
+                "gemma2-9b-it",
+                "mixtral-8x7b-32768"
+            ]
             current_model = bot_settings.get("model_name", "models/gemini-2.5-flash")
             if current_model not in model_options:
                 model_options.append(current_model)
             model_selection = st.selectbox("LLM Model Name:", model_options, index=model_options.index(current_model))
+            
+            if any(k in model_selection.lower() for k in ["llama", "mixtral", "gemma2"]):
+                st.info("⚡ Groq model selected. Ensure you provide your **Groq API Key** in the chatbot portal sidebar (gives you 14,400 free requests per day!).")
             
             # Prompt configuration
             default_prompt = (
