@@ -6,11 +6,11 @@ import time
 from urllib.parse import urlparse
 from supabase import create_client, Client
 
-# Set page configuration
+# Set page configuration to centered (prevents wide-stretching)
 st.set_page_config(
     page_title="Customer Chatbot Support",
     page_icon="💬",
-    layout="wide"
+    layout="centered"
 )
 
 # Settings File Path
@@ -148,7 +148,7 @@ if not st.session_state.chat_history:
     welcome_text = f"Hello! Welcome to {bot_info['name']} support. How can I help you today?"
     st.session_state.chat_history.append({"role": "assistant", "content": welcome_text})
 
-# Inject Custom CSS for modern floating chat overlay widget
+# Inject Custom CSS for beautiful minimal floating widget
 st.markdown("""
 <style>
     /* Float the bordered container containing our class marker */
@@ -157,9 +157,9 @@ st.markdown("""
         bottom: 110px !important;
         right: 30px !important;
         width: 360px !important;
-        height: 520px !important;
+        height: 500px !important;
         z-index: 99999 !important;
-        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.12) !important;
+        box-shadow: 0 8px 30px rgba(0, 0, 0, 0.12) !important;
         border-radius: 16px !important;
         background-color: var(--secondary-background-color) !important;
         border: 1px solid rgba(128, 128, 128, 0.18) !important;
@@ -167,7 +167,20 @@ st.markdown("""
         display: flex !important;
         flex-direction: column !important;
     }
+
+    /* Tighten vertical layout spacing inside the widget */
+    div[data-testid="stVerticalBlockBorderWrapper"]:has(.chat-widget-marker) [data-testid="stVerticalBlock"] {
+        gap: 6px !important;
+    }
     
+    /* Sleek minimal divider margin */
+    hr {
+        margin-top: 4px !important;
+        margin-bottom: 8px !important;
+        border: 0 !important;
+        border-top: 1px solid rgba(128, 128, 128, 0.15) !important;
+    }
+
     /* Styling for the floating FAB button */
     .floating-btn-container {
         position: fixed;
@@ -182,50 +195,69 @@ st.markdown("""
         width: 65px !important;
         height: 65px !important;
         font-size: 30px !important;
-        box-shadow: 0 6px 20px rgba(0, 123, 255, 0.25) !important;
+        box-shadow: 0 5px 15px rgba(0, 123, 255, 0.3) !important;
         border: none !important;
         cursor: pointer !important;
-        transition: transform 0.2s ease-in-out !important;
         display: flex !important;
         align-items: center !important;
         justify-content: center !important;
+        transition: transform 0.2s ease !important;
     }
     .floating-btn-container button:hover {
-        transform: scale(1.08) !important;
+        transform: scale(1.06) !important;
     }
 
-    /* Style header buttons to be tiny circles */
-    .chat-header-btn button {
+    /* macOS style window control header buttons */
+    .min-btn-wrapper button {
         border-radius: 50% !important;
-        width: 26px !important;
-        height: 26px !important;
+        width: 24px !important;
+        height: 24px !important;
         min-height: unset !important;
         padding: 0 !important;
         display: inline-flex !important;
         align-items: center !important;
         justify-content: center !important;
-        background-color: transparent !important;
+        background-color: rgba(128, 128, 128, 0.1) !important;
         border: none !important;
-        font-size: 12px !important;
+        font-size: 10px !important;
         color: var(--text-color) !important;
         transition: background-color 0.2s !important;
     }
-    .chat-header-btn button:hover {
-        background-color: rgba(128, 128, 128, 0.15) !important;
+    .min-btn-wrapper button:hover {
+        background-color: rgba(128, 128, 128, 0.25) !important;
+    }
+
+    .close-btn-wrapper button {
+        border-radius: 50% !important;
+        width: 24px !important;
+        height: 24px !important;
+        min-height: unset !important;
+        padding: 0 !important;
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        background-color: rgba(220, 53, 69, 0.1) !important;
+        border: none !important;
+        font-size: 10px !important;
+        color: #dc3545 !important;
+        transition: background-color 0.2s !important;
+    }
+    .close-btn-wrapper button:hover {
+        background-color: rgba(220, 53, 69, 0.25) !important;
     }
 
     /* Style starter pill buttons */
     .starter-btn button {
-        border-radius: 20px !important;
+        border-radius: 18px !important;
         border: 1px solid rgba(128, 128, 128, 0.15) !important;
         background-color: var(--background-color) !important;
         color: var(--text-color) !important;
-        padding: 6px 12px !important;
+        padding: 5px 12px !important;
         font-size: 0.8rem !important;
         font-weight: 500 !important;
         transition: all 0.2s ease !important;
         text-align: left !important;
-        margin-bottom: 4px !important;
+        margin-bottom: 2px !important;
     }
     .starter-btn button:hover {
         border-color: #007bff !important;
@@ -240,8 +272,8 @@ def render_custom_bubble(role, content, sources=None):
     if role == "user":
         st.markdown(
             f"""
-            <div style='display: flex; justify-content: flex-end; margin-bottom: 10px;'>
-                <div style='background-color: #007bff; color: white; padding: 10px 14px; border-radius: 14px 14px 0px 14px; max-width: 85%; font-size: 0.9rem; line-height: 1.4;'>
+            <div style='display: flex; justify-content: flex-end; margin-bottom: 8px;'>
+                <div style='background-color: #007bff; color: white; padding: 10px 14px; border-radius: 14px 14px 0px 14px; max-width: 85%; font-size: 0.9rem; line-height: 1.45;'>
                     {content}
                 </div>
             </div>
@@ -254,13 +286,13 @@ def render_custom_bubble(role, content, sources=None):
             sources_html = "<div style='display:flex; flex-wrap:wrap; gap:6px; margin-top:8px;'>"
             for src_url, similarity in sources:
                 domain = urlparse(src_url).netloc or "Documentation"
-                sources_html += f"<a href='{src_url}' target='_blank' style='text-decoration:none; color:#0056b3; background-color:rgba(0,123,255,0.05); padding:2px 6px; border-radius:8px; font-size:0.7rem;'>🔗 {domain}</a>"
+                sources_html += f"<a href='{src_url}' target='_blank' style='text-decoration:none; color:#0056b3; background-color:rgba(0,123,255,0.04); padding:2px 6px; border-radius:6px; font-size:0.68rem;'>🔗 {domain}</a>"
             sources_html += "</div>"
             
         st.markdown(
             f"""
-            <div style='display: flex; justify-content: flex-start; margin-bottom: 10px;'>
-                <div style='background-color: var(--secondary-background-color); color: var(--text-color); border: 1px solid rgba(128,128,128,0.15); padding: 10px 14px; border-radius: 14px 14px 14px 0px; max-width: 85%; font-size: 0.9rem; line-height: 1.4;'>
+            <div style='display: flex; justify-content: flex-start; margin-bottom: 8px;'>
+                <div style='background-color: var(--secondary-background-color); color: var(--text-color); border: 1px solid rgba(128,128,128,0.14); padding: 10px 14px; border-radius: 14px 14px 14px 0px; max-width: 85%; font-size: 0.9rem; line-height: 1.45;'>
                     <div>{content}</div>
                     {sources_html}
                 </div>
@@ -273,31 +305,31 @@ def render_custom_bubble(role, content, sources=None):
 if "chat_open" not in st.session_state:
     st.session_state.chat_open = False
 
-# Render Website Layout (Always full-screen in background)
-st.markdown(f"<h1 style='font-size:2.5rem; font-weight:700; margin-bottom:0;'>🏢 {bot_info['name']}</h1>", unsafe_allow_html=True)
+# Render Website Layout (Always centered in background, no wide stretching)
+st.markdown(f"<h1 style='font-size:2.4rem; font-weight:700; margin-bottom:0;'>🏢 {bot_info['name']}</h1>", unsafe_allow_html=True)
 if bot_info['website_url']:
     st.caption(f"Official Portal: [{bot_info['website_url']}]({bot_info['website_url']})")
 st.markdown("---")
 st.write("Welcome to our simple web portal. Feel free to browse around or activate the support agent in the bottom right corner.")
 
-# Render Chat Widget Window (As Overlay, no column layout splits)
+# Render Chat Widget Window (As Floating Overlay, no screen layout splits)
 if st.session_state.chat_open:
     with st.container(border=True):
         st.markdown('<div class="chat-widget-marker"></div>', unsafe_allow_html=True)
         
         # Widget Header Row
-        hdr_c1, hdr_c2, hdr_c3 = st.columns([6, 2, 2])
+        hdr_c1, hdr_c2, hdr_c3 = st.columns([8, 1, 1])
         with hdr_c1:
             st.markdown(f"**🤖 {bot_info['name']}**")
             st.markdown("<span style='color:#28a745; font-size:0.75rem; font-weight:600;'>● Online</span>", unsafe_allow_html=True)
         with hdr_c2:
-            st.markdown('<div class="chat-header-btn">', unsafe_allow_html=True)
-            if st.button("➖", key="minimize_chat_widget", help="Minimize Chat (Keeps History)"):
+            st.markdown('<div class="min-btn-wrapper">', unsafe_allow_html=True)
+            if st.button("─", key="minimize_chat_widget", help="Minimize Chat (Keeps History)"):
                 st.session_state.chat_open = False
                 st.rerun()
             st.markdown('</div>', unsafe_allow_html=True)
         with hdr_c3:
-            st.markdown('<div class="chat-header-btn">', unsafe_allow_html=True)
+            st.markdown('<div class="close-btn-wrapper">', unsafe_allow_html=True)
             if st.button("✕", key="close_chat_session", help="Close Chat (Resets Session & History)"):
                 st.session_state.chat_history = []
                 st.session_state.conversation_id = None
@@ -311,17 +343,17 @@ if st.session_state.chat_open:
                 st.rerun()
             st.markdown('</div>', unsafe_allow_html=True)
             
-        st.markdown("<hr style='margin: 8px 0;'/>", unsafe_allow_html=True)
+        st.markdown("<hr/>", unsafe_allow_html=True)
         
-        # Scrollable chat logs container
-        chat_container = st.container(height=330)
+        # Scrollable chat logs container (reduced height to fit widget nicely)
+        chat_container = st.container(height=310)
         with chat_container:
             for msg in st.session_state.chat_history:
                 render_custom_bubble(msg["role"], msg["content"], msg.get("sources"))
             
             # Show starters inside container if history only contains welcome message
             if len(st.session_state.chat_history) <= 1:
-                st.markdown("<p style='font-size:0.8rem; opacity:0.8; margin-top:10px; margin-bottom:5px; font-weight:600;'>💡 Suggestions:</p>", unsafe_allow_html=True)
+                st.markdown("<p style='font-size:0.78rem; opacity:0.8; margin-top:8px; margin-bottom:4px; font-weight:600;'>💡 Suggestions:</p>", unsafe_allow_html=True)
                 starters = [
                     "What services do you offer?",
                     "How do I contact support?",
