@@ -109,6 +109,26 @@ if not bot_info:
     st.error(f"Chatbot with ID '{bot_id}' does not exist.")
     st.stop()
 
+# Handle Header Action parameters (Minimize and Close)
+action = st.query_params.get("action")
+if action:
+    if action == "minimize":
+        st.session_state.chat_open = False
+    elif action == "close":
+        st.session_state.chat_history = []
+        st.session_state.conversation_id = None
+        st.session_state.chat_open = False
+        st.session_state.last_activity = time.time()
+        try:
+            conv_res = supabase.table("conversations").insert({"bot_id": bot_id}).execute()
+            st.session_state.conversation_id = conv_res.data[0]["id"]
+        except:
+            pass
+            
+    if "action" in st.query_params:
+        del st.query_params["action"]
+    st.rerun()
+
 # Initialize Chat Session State
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
@@ -177,32 +197,7 @@ st.markdown("""
     /* Tighten vertical layout spacing inside the widget */
     div[data-testid="stVerticalBlockBorderWrapper"]:has(.chat-widget-marker) [data-testid="stVerticalBlock"] {
         gap: 6px !important;
-    }
-
-    /* Absolute position the macOS window controls in the top-right corner of the widget */
-    div[data-testid="stVerticalBlockBorderWrapper"]:has(.chat-widget-marker) div[data-testid="stVerticalBlock"] > div[data-testid="element-container"]:nth-child(2) {
-        position: absolute !important;
-        top: 14px !important;
-        right: 44px !important;
-        width: 18px !important;
-        height: 18px !important;
-        z-index: 100001 !important;
-        margin: 0 !important;
-        padding: 0 !important;
-    }
-
-    div[data-testid="stVerticalBlockBorderWrapper"]:has(.chat-widget-marker) div[data-testid="stVerticalBlock"] > div[data-testid="element-container"]:nth-child(3) {
-        position: absolute !important;
-        top: 14px !important;
-        right: 18px !important;
-        width: 18px !important;
-        height: 18px !important;
-        z-index: 100001 !important;
-        margin: 0 !important;
-        padding: 0 !important;
-    }
-    
-    /* Styling for the floating FAB button */
+    }    /* Styling for the floating FAB button */
     .floating-btn-container {
         position: fixed;
         bottom: 30px;
@@ -246,45 +241,10 @@ st.markdown("""
         color: #28a745 !important;
     }
 
-    /* macOS style window control header buttons (compact 18px circular dots) */
-    /* Target buttons inside elements by index to turn them into colored dots */
-    div[data-testid="stVerticalBlockBorderWrapper"]:has(.chat-widget-marker) div[data-testid="stVerticalBlock"] > div:nth-child(2) button,
-    div[data-testid="stVerticalBlockBorderWrapper"]:has(.chat-widget-marker) div[data-testid="stVerticalBlock"] > div:nth-child(3) button {
-        border-radius: 50% !important;
-        width: 18px !important;
-        height: 18px !important;
-        min-width: 18px !important;
-        min-height: 18px !important;
-        max-width: 18px !important;
-        max-height: 18px !important;
-        padding: 0 !important;
-        border: none !important;
-        font-size: 8px !important;
-        font-weight: bold !important;
-        color: rgba(0, 0, 0, 0.6) !important;
-        cursor: pointer;
-        display: flex !important;
-        align-items: center !important;
-        justify-content: center !important;
-        transition: opacity 0.2s !important;
-        line-height: 1 !important;
-    }
-
-    /* Yellow background for Minimize */
-    div[data-testid="stVerticalBlockBorderWrapper"]:has(.chat-widget-marker) div[data-testid="stVerticalBlock"] > div:nth-child(2) button {
-        background-color: #ffbd2e !important;
-    }
-
-    /* Red background for Close */
-    div[data-testid="stVerticalBlockBorderWrapper"]:has(.chat-widget-marker) div[data-testid="stVerticalBlock"] > div:nth-child(3) button {
-        background-color: #ff5f56 !important;
-    }
-
-    div[data-testid="stVerticalBlockBorderWrapper"]:has(.chat-widget-marker) div[data-testid="stVerticalBlock"] > div:nth-child(2) button:hover,
-    div[data-testid="stVerticalBlockBorderWrapper"]:has(.chat-widget-marker) div[data-testid="stVerticalBlock"] > div:nth-child(3) button:hover {
+    /* Hover effect for custom macOS window dots */
+    .mac-control-dot:hover {
         opacity: 0.8 !important;
     }
-
     /* Style starter pill buttons */
     .starter-btn button {
         border-radius: 18px !important;
@@ -354,35 +314,25 @@ if st.session_state.chat_open:
     with st.container(border=True):
         st.markdown('<div class="chat-widget-marker"></div>', unsafe_allow_html=True)
         
-        # Widget Header Row (absolute-positioned controls are overlaid via CSS)
+        # Widget Header Row (unified HTML header with absolute-positioned control anchors)
         st.html(
             f"""
-            <div style='margin-top: 2px; margin-bottom: 2px;'>
-                <div class='chat-header-title'>🤖 {bot_info['name']}</div>
-                <div class='chat-header-status'>● Online</div>
+            <div style="display: flex; justify-content: space-between; align-items: center; width: 100%; position: relative; padding-right: 60px; box-sizing: border-box; margin-top: 2px; margin-bottom: 2px;">
+                <div>
+                    <div class="chat-header-title">🤖 {bot_info['name']}</div>
+                    <div class="chat-header-status">● Online</div>
+                </div>
+                <div style="position: absolute; right: 0; top: 50%; transform: translateY(-50%); display: flex; gap: 8px; z-index: 999999;">
+                    <a href="?botId={bot_id}&action=minimize" target="_self" style="text-decoration: none;">
+                        <div class="mac-control-dot" style="width: 18px; height: 18px; border-radius: 50%; background-color: #ffbd2e; display: flex; align-items: center; justify-content: center; font-size: 8px; font-weight: bold; color: rgba(0,0,0,0.6); cursor: pointer; line-height: 1;">─</div>
+                    </a>
+                    <a href="?botId={bot_id}&action=close" target="_self" style="text-decoration: none;">
+                        <div class="mac-control-dot" style="width: 18px; height: 18px; border-radius: 50%; background-color: #ff5f56; display: flex; align-items: center; justify-content: center; font-size: 8px; font-weight: bold; color: rgba(0,0,0,0.6); cursor: pointer; line-height: 1;">✕</div>
+                    </a>
+                </div>
             </div>
             """
         )
-        
-        st.markdown('<div class="min-btn-wrapper">', unsafe_allow_html=True)
-        if st.button("─", key="minimize_chat_widget", help="Minimize"):
-            st.session_state.chat_open = False
-            st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
-        
-        st.markdown('<div class="close-btn-wrapper">', unsafe_allow_html=True)
-        if st.button("✕", key="close_chat_session", help="Close Session"):
-            st.session_state.chat_history = []
-            st.session_state.conversation_id = None
-            st.session_state.chat_open = False
-            st.session_state.last_activity = time.time()
-            try:
-                conv_res = supabase.table("conversations").insert({"bot_id": bot_id}).execute()
-                st.session_state.conversation_id = conv_res.data[0]["id"]
-            except:
-                pass
-            st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
             
         st.html("<hr style='margin: 4px 0; border: 0; border-top: 1px solid rgba(128,128,128,0.15);'/>")
         
